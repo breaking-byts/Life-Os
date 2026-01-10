@@ -1,8 +1,9 @@
+import * as React from 'react'
+
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
-import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
-import { TanStackDevtools } from '@tanstack/react-devtools'
 
 import appCss from '../styles.css?url'
+import { tauri } from '@/lib/tauri'
 
 export const Route = createRootRoute({
   head: () => ({
@@ -15,7 +16,7 @@ export const Route = createRootRoute({
         content: 'width=device-width, initial-scale=1',
       },
       {
-        title: 'TanStack Start Starter',
+        title: 'Life OS',
       },
     ],
     links: [
@@ -30,24 +31,34 @@ export const Route = createRootRoute({
 })
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  React.useEffect(() => {
+    const key = 'lifeos:lastExerciseSyncAt'
+    const now = Date.now()
+
+    const lastRaw = window.localStorage.getItem(key)
+    const last = lastRaw ? Number(lastRaw) : 0
+    const twentyFourHoursMs = 24 * 60 * 60 * 1000
+
+    const shouldSync = !Number.isFinite(last) || now - last >= twentyFourHoursMs
+    if (!shouldSync) return
+
+    // Sync exercises in background (best-effort)
+    tauri
+      .fetchAndCacheExercises()
+      .then(() => {
+        window.localStorage.setItem(key, String(now))
+      })
+      .catch((err) => {
+        console.error('Failed to sync exercises:', err)
+      })
+  }, [])
   return (
-    <html lang="en">
+    <html lang="en" className="h-full" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
-      <body>
+      <body className="min-h-screen bg-background text-foreground">
         {children}
-        <TanStackDevtools
-          config={{
-            position: 'bottom-right',
-          }}
-          plugins={[
-            {
-              name: 'Tanstack Router',
-              render: <TanStackRouterDevtoolsPanel />,
-            },
-          ]}
-        />
         <Scripts />
       </body>
     </html>

@@ -9,38 +9,174 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as WeeklyRouteImport } from './routes/weekly'
+import { Route as SkillsRouteImport } from './routes/skills'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as PhysicalRouteImport } from './routes/physical'
+import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as AcademicRouteImport } from './routes/academic'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AcademicCourseIdRouteImport } from './routes/academic.$courseId'
 
+const WeeklyRoute = WeeklyRouteImport.update({
+  id: '/weekly',
+  path: '/weekly',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SkillsRoute = SkillsRouteImport.update({
+  id: '/skills',
+  path: '/skills',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PhysicalRoute = PhysicalRouteImport.update({
+  id: '/physical',
+  path: '/physical',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DashboardRoute = DashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AcademicRoute = AcademicRouteImport.update({
+  id: '/academic',
+  path: '/academic',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AcademicCourseIdRoute = AcademicCourseIdRouteImport.update({
+  id: '/$courseId',
+  path: '/$courseId',
+  getParentRoute: () => AcademicRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/academic': typeof AcademicRouteWithChildren
+  '/dashboard': typeof DashboardRoute
+  '/physical': typeof PhysicalRoute
+  '/settings': typeof SettingsRoute
+  '/skills': typeof SkillsRoute
+  '/weekly': typeof WeeklyRoute
+  '/academic/$courseId': typeof AcademicCourseIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/academic': typeof AcademicRouteWithChildren
+  '/dashboard': typeof DashboardRoute
+  '/physical': typeof PhysicalRoute
+  '/settings': typeof SettingsRoute
+  '/skills': typeof SkillsRoute
+  '/weekly': typeof WeeklyRoute
+  '/academic/$courseId': typeof AcademicCourseIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/academic': typeof AcademicRouteWithChildren
+  '/dashboard': typeof DashboardRoute
+  '/physical': typeof PhysicalRoute
+  '/settings': typeof SettingsRoute
+  '/skills': typeof SkillsRoute
+  '/weekly': typeof WeeklyRoute
+  '/academic/$courseId': typeof AcademicCourseIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/academic'
+    | '/dashboard'
+    | '/physical'
+    | '/settings'
+    | '/skills'
+    | '/weekly'
+    | '/academic/$courseId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/academic'
+    | '/dashboard'
+    | '/physical'
+    | '/settings'
+    | '/skills'
+    | '/weekly'
+    | '/academic/$courseId'
+  id:
+    | '__root__'
+    | '/'
+    | '/academic'
+    | '/dashboard'
+    | '/physical'
+    | '/settings'
+    | '/skills'
+    | '/weekly'
+    | '/academic/$courseId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AcademicRoute: typeof AcademicRouteWithChildren
+  DashboardRoute: typeof DashboardRoute
+  PhysicalRoute: typeof PhysicalRoute
+  SettingsRoute: typeof SettingsRoute
+  SkillsRoute: typeof SkillsRoute
+  WeeklyRoute: typeof WeeklyRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/weekly': {
+      id: '/weekly'
+      path: '/weekly'
+      fullPath: '/weekly'
+      preLoaderRoute: typeof WeeklyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/skills': {
+      id: '/skills'
+      path: '/skills'
+      fullPath: '/skills'
+      preLoaderRoute: typeof SkillsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/physical': {
+      id: '/physical'
+      path: '/physical'
+      fullPath: '/physical'
+      preLoaderRoute: typeof PhysicalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/academic': {
+      id: '/academic'
+      path: '/academic'
+      fullPath: '/academic'
+      preLoaderRoute: typeof AcademicRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,11 +184,36 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/academic/$courseId': {
+      id: '/academic/$courseId'
+      path: '/$courseId'
+      fullPath: '/academic/$courseId'
+      preLoaderRoute: typeof AcademicCourseIdRouteImport
+      parentRoute: typeof AcademicRoute
+    }
   }
 }
 
+interface AcademicRouteChildren {
+  AcademicCourseIdRoute: typeof AcademicCourseIdRoute
+}
+
+const AcademicRouteChildren: AcademicRouteChildren = {
+  AcademicCourseIdRoute: AcademicCourseIdRoute,
+}
+
+const AcademicRouteWithChildren = AcademicRoute._addFileChildren(
+  AcademicRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AcademicRoute: AcademicRouteWithChildren,
+  DashboardRoute: DashboardRoute,
+  PhysicalRoute: PhysicalRoute,
+  SettingsRoute: SettingsRoute,
+  SkillsRoute: SkillsRoute,
+  WeeklyRoute: WeeklyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
