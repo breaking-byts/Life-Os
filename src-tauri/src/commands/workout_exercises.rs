@@ -63,3 +63,20 @@ pub async fn remove_exercise(state: State<'_, DbState>, id: i64) -> Result<bool,
     Ok(true)
 }
 
+#[tauri::command]
+pub async fn get_workout_exercises(
+    state: State<'_, DbState>,
+    workout_id: i64,
+) -> Result<Vec<WorkoutExercise>, String> {
+    let pool = &state.0;
+    let exercises = sqlx::query_as::<_, WorkoutExercise>(
+        "SELECT id, workout_id, exercise_id, exercise_name, sets, reps, weight, notes 
+         FROM workout_exercises WHERE workout_id = ? ORDER BY id"
+    )
+    .bind(workout_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(exercises)
+}
+

@@ -38,10 +38,17 @@ const TIMER_PRESETS = [
   { name: 'Deep Work', work: 90, break: 20 },
 ]
 
-export function PomodoroTimer() {
+interface PomodoroTimerProps {
+  initialCourseId?: number
+}
+
+export function PomodoroTimer({ initialCourseId }: PomodoroTimerProps) {
   const initial = loadPomodoroState()
+  // Use initialCourseId from props if provided and timer is idle, otherwise use persisted state
   const [selectedCourseId, setSelectedCourseId] = useState<string>(
-    initial.selectedCourseId ?? 'none',
+    initialCourseId !== undefined
+      ? String(initialCourseId)
+      : (initial.selectedCourseId ?? 'none'),
   )
   const [activeSessionId, setActiveSessionId] = useState<number | null>(
     initial.activeSessionId ?? null,

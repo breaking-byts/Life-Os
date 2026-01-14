@@ -5,6 +5,7 @@ use crate::{DbState, models::workout::Workout};
 #[derive(Debug, serde::Deserialize)]
 pub struct WorkoutInput {
     pub user_id: Option<i64>,
+    pub name: Option<String>,
     pub duration_minutes: Option<i64>,
     pub notes: Option<String>,
     pub logged_at: Option<String>,
@@ -14,9 +15,10 @@ pub struct WorkoutInput {
 pub async fn create_workout(state: State<'_, DbState>, data: WorkoutInput) -> Result<Workout, String> {
     let pool = &state.0;
     let rec = sqlx::query_as::<_, Workout>(
-        "INSERT INTO workouts (user_id, duration_minutes, notes, logged_at) VALUES (?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP)) RETURNING id, user_id, duration_minutes, notes, logged_at"
+        "INSERT INTO workouts (user_id, name, duration_minutes, notes, logged_at) VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP)) RETURNING id, user_id, name, duration_minutes, notes, logged_at"
     )
     .bind(data.user_id.unwrap_or(1))
+    .bind(&data.name)
     .bind(data.duration_minutes)
     .bind(&data.notes)
     .bind(&data.logged_at)
@@ -29,7 +31,7 @@ pub async fn create_workout(state: State<'_, DbState>, data: WorkoutInput) -> Re
 #[tauri::command]
 pub async fn get_workouts(state: State<'_, DbState>) -> Result<Vec<Workout>, String> {
     let pool = &state.0;
-    let rows = sqlx::query_as::<_, Workout>("SELECT * FROM workouts ORDER BY logged_at DESC")
+    let rows = sqlx::query_as::<_, Workout>("SELECT id, user_id, name, duration_minutes, notes, logged_at FROM workouts ORDER BY logged_at DESC")
         .fetch_all(pool)
         .await
         .map_err(|e| e.to_string())?;
@@ -39,7 +41,7 @@ pub async fn get_workouts(state: State<'_, DbState>) -> Result<Vec<Workout>, Str
 #[tauri::command]
 pub async fn get_workout(state: State<'_, DbState>, id: i64) -> Result<Workout, String> {
     let pool = &state.0;
-    let row = sqlx::query_as::<_, Workout>("SELECT * FROM workouts WHERE id = ?")
+    let row = sqlx::query_as::<_, Workout>("SELECT id, user_id, name, duration_minutes, notes, logged_at FROM workouts WHERE id = ?")
         .bind(id)
         .fetch_one(pool)
         .await
@@ -56,5 +58,32 @@ pub async fn delete_workout(state: State<'_, DbState>, id: i64) -> Result<bool, 
         .await
         .map_err(|e| e.to_string())?;
     Ok(true)
+}
+
+#[tauri::command]
+pub async fn update_workout(
+    state: State<'_, DbState>,
+    id: i64,
+    data: WorkoutInput,
+) -> Result<Workout, String> {
+    let pool = &state.0;
+    let rec = sqlx::query_as::<_, Workout>(
+        "UPDATE workouts SET 
+            name = COALESCE(?, name),
+            duration_minutes = COALESCE(?, duration_minutes),
+            notes = COALESCE(?, notes),
+            logged_at = COALESCE(?, logged_at)
+         WHERE id = ? 
+         RETURNING id, user_id, name, duration_minutes, notes, logged_at"
+    )
+    .bind(&data.name)
+    .bind(data.duration_minutes)
+    .bind(&data.notes)
+    .bind(&data.logged_at)
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(rec)
 }
 

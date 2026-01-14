@@ -1,15 +1,31 @@
 import { invoke } from '@tauri-apps/api/core'
 import type {
+  Achievement,
+  AgentRecommendation,
+  AgentStatus,
   Assignment,
+  BigThreeGoal,
+  BigThreeInput,
   CheckIn,
   Course,
+  CourseAnalytics,
+  CourseWithProgress,
+  DetailedStats,
+  Exam,
   Exercise,
+  PersonalRecord,
   PracticeLog,
+  RichContext,
   Session,
+  SimilarExperience,
   Skill,
+  UserSettings,
   WeeklyReview,
   Workout,
   WorkoutExercise,
+  WorkoutHeatmapDay,
+  WorkoutTemplate,
+  WorkoutTemplateExercise,
 } from '@/types'
 
 export const tauri = {
@@ -21,6 +37,21 @@ export const tauri = {
   updateCourse: (id: number, data: Partial<Course>) =>
     invoke<Course>('update_course', { id, data }),
   deleteCourse: (id: number) => invoke<boolean>('delete_course', { id }),
+  getCoursesWithProgress: () =>
+    invoke<Array<CourseWithProgress>>('get_courses_with_progress'),
+  getCourseAnalytics: (courseId: number) =>
+    invoke<CourseAnalytics>('get_course_analytics', { courseId }),
+
+  // Exams
+  createExam: (data: Partial<Exam>) => invoke<Exam>('create_exam', { data }),
+  getExams: (courseId?: number) =>
+    invoke<Array<Exam>>('get_exams', { courseId }),
+  getExam: (id: number) => invoke<Exam>('get_exam', { id }),
+  updateExam: (id: number, data: Partial<Exam>) =>
+    invoke<Exam>('update_exam', { id, data }),
+  deleteExam: (id: number) => invoke<boolean>('delete_exam', { id }),
+  getUpcomingExams: (days: number) =>
+    invoke<Array<Exam>>('get_upcoming_exams', { days }),
 
   // Assignments
   createAssignment: (data: Partial<Assignment>) =>
@@ -66,6 +97,31 @@ export const tauri = {
   updateWorkoutExercise: (id: number, data: Partial<WorkoutExercise>) =>
     invoke<WorkoutExercise>('update_workout_exercise', { id, data }),
   removeExercise: (id: number) => invoke<boolean>('remove_exercise', { id }),
+
+  // Get exercises for a specific workout
+  getWorkoutExercises: (workoutId: number) =>
+    invoke<WorkoutExercise[]>('get_workout_exercises', { workoutId }),
+
+  // Update workout
+  updateWorkout: (id: number, data: Partial<Workout>) =>
+    invoke<Workout>('update_workout', { id, data }),
+
+  // Workout Templates
+  getWorkoutTemplates: () => invoke<WorkoutTemplate[]>('get_workout_templates'),
+  getTemplateExercises: (templateId: number) =>
+    invoke<WorkoutTemplateExercise[]>('get_template_exercises', { templateId }),
+  createWorkoutTemplate: (
+    name: string,
+    exercises: Partial<WorkoutTemplateExercise>[],
+  ) => invoke<WorkoutTemplate>('create_workout_template', { name, exercises }),
+  updateWorkoutTemplate: (
+    id: number,
+    name: string,
+    exercises: Partial<WorkoutTemplateExercise>[],
+  ) =>
+    invoke<WorkoutTemplate>('update_workout_template', { id, name, exercises }),
+  deleteWorkoutTemplate: (id: number) =>
+    invoke<boolean>('delete_workout_template', { id }),
 
   // Exercises search
   fetchAndCacheExercises: () => invoke<number>('fetch_and_cache_exercises'),
@@ -113,6 +169,110 @@ export const tauri = {
         icon: string
         message: string
         category: string
+        confidence?: number
+        insight_id?: number
+        arm_name?: string
       }>
     >('get_insights'),
+
+  // Agent learning
+  recordInsightFeedback: (
+    insightId: number,
+    actedOn: boolean,
+    feedbackScore?: number,
+  ) =>
+    invoke<void>('record_insight_feedback', {
+      insightId,
+      actedOn,
+      feedbackScore,
+    }),
+  runPatternAnalysis: () => invoke<number>('run_pattern_analysis'),
+  getUserProfile: () =>
+    invoke<
+      Array<{
+        id: number
+        dimension: string
+        value_json: string
+        confidence: number
+        sample_count: number
+        updated_at?: string
+      }>
+    >('get_user_profile'),
+
+  // Intelligence Agent
+  getAgentRecommendations: (count?: number) =>
+    invoke<Array<AgentRecommendation>>('get_agent_recommendations', { count }),
+  getAgentRecommendation: () =>
+    invoke<AgentRecommendation>('get_agent_recommendation'),
+  recordRecommendationFeedback: (
+    recommendationId: number,
+    accepted: boolean,
+    alternativeChosen?: string,
+    feedbackScore?: number,
+    outcomeScore?: number,
+  ) =>
+    invoke<void>('record_recommendation_feedback', {
+      recommendationId,
+      accepted,
+      alternativeChosen,
+      feedbackScore,
+      outcomeScore,
+    }),
+  recordActionCompleted: (
+    actionType: string,
+    description: string,
+    outcomeScore: number,
+    metadata?: Record<string, unknown>,
+  ) =>
+    invoke<number>('record_action_completed', {
+      actionType,
+      description,
+      outcomeScore,
+      metadata,
+    }),
+  getAgentStatus: () => invoke<AgentStatus>('get_agent_status'),
+  getRichContext: () => invoke<RichContext>('get_rich_context'),
+
+  // Big 3 Goals
+  getBigThree: () => invoke<Array<BigThreeGoal>>('get_big_three'),
+  setBigThree: (goals: BigThreeInput[]) =>
+    invoke<void>('set_big_three', { goals }),
+  completeBigThree: (goalId: number, satisfaction?: number) =>
+    invoke<void>('complete_big_three', { goalId, satisfaction }),
+
+  // Agent Maintenance
+  runAgentMaintenance: () => invoke<void>('run_agent_maintenance'),
+  getFeatureNames: () => invoke<string[]>('get_feature_names'),
+  searchSimilarExperiences: (query: string, limit?: number) =>
+    invoke<SimilarExperience[]>('search_similar_experiences', { query, limit }),
+  setRewardWeights: (
+    immediate: number,
+    daily: number,
+    weekly: number,
+    monthly: number,
+  ) =>
+    invoke<void>('set_reward_weights', { immediate, daily, weekly, monthly }),
+  setExplorationRate: (rate: number) =>
+    invoke<void>('set_exploration_rate', { rate }),
+
+  // Detailed Analytics (Dashboard Revamp)
+  getDetailedStats: () => invoke<DetailedStats>('get_detailed_stats'),
+  getUserSettings: () => invoke<UserSettings>('get_user_settings'),
+  updateUserSettings: (
+    weeklyWorkoutTarget: number,
+    weeklyActiveSkillsTarget: number,
+  ) =>
+    invoke<UserSettings>('update_user_settings', {
+      weeklyWorkoutTarget,
+      weeklyActiveSkillsTarget,
+    }),
+
+  // Physical Analytics
+  getWorkoutHeatmap: (months: number) =>
+    invoke<WorkoutHeatmapDay[]>('get_workout_heatmap', { months }),
+  getPersonalRecords: () => invoke<PersonalRecord[]>('get_personal_records'),
+  checkAndUpdatePrs: (workoutId: number) =>
+    invoke<PersonalRecord[]>('check_and_update_prs', { workoutId }),
+  getAchievements: () => invoke<Achievement[]>('get_achievements'),
+  checkAchievements: () => invoke<Achievement[]>('check_achievements'),
 }

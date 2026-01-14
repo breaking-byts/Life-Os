@@ -36,6 +36,7 @@
     "nitro": "latest",
     "radix-ui": "^1.4.3",
     "react": "^19.2.0",
+    "react-activity-calendar": "^3.0.5",
     "react-day-picker": "^9.13.0",
     "react-dom": "^19.2.0",
     "recharts": "^3.6.0",

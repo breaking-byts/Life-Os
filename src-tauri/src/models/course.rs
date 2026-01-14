@@ -12,4 +12,6 @@ pub struct Course {
     pub target_weekly_hours: Option<f64>,
     pub is_active: Option<i64>,
     pub created_at: Option<String>,
+    pub current_grade: Option<f64>,
+    pub target_grade: Option<f64>,
 }

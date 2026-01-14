@@ -1,6 +1,7 @@
 pub mod assignment;
 pub mod checkin;
 pub mod course;
+pub mod exam;
 pub mod exercise;
 pub mod session;
 pub mod skill;

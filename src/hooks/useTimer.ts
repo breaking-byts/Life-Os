@@ -76,7 +76,6 @@ export function useTimer({
       const persisted = loadPomodoroState()
       savePomodoroState({
         ...persisted,
-        ...next,
         version: 1,
         workMinutes,
         breakMinutes,
@@ -85,6 +84,7 @@ export function useTimer({
         timeLeft,
         cycles,
         lastUpdatedAt: Date.now(),
+        ...next, // Apply overrides AFTER defaults so they take precedence
       })
     },
     [workMinutes, breakMinutes, mode, state, timeLeft, cycles],

@@ -16,7 +16,7 @@ import { Route as PhysicalRouteImport } from './routes/physical'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as AcademicRouteImport } from './routes/academic'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as AcademicCourseIdRouteImport } from './routes/academic.$courseId'
+import { Route as AcademicCourseIdRouteImport } from './routes/academic_.$courseId'
 
 const WeeklyRoute = WeeklyRouteImport.update({
   id: '/weekly',
@@ -54,14 +54,14 @@ const IndexRoute = IndexRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const AcademicCourseIdRoute = AcademicCourseIdRouteImport.update({
-  id: '/$courseId',
-  path: '/$courseId',
-  getParentRoute: () => AcademicRoute,
+  id: '/academic_/$courseId',
+  path: '/academic/$courseId',
+  getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/academic': typeof AcademicRouteWithChildren
+  '/academic': typeof AcademicRoute
   '/dashboard': typeof DashboardRoute
   '/physical': typeof PhysicalRoute
   '/settings': typeof SettingsRoute
@@ -71,7 +71,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/academic': typeof AcademicRouteWithChildren
+  '/academic': typeof AcademicRoute
   '/dashboard': typeof DashboardRoute
   '/physical': typeof PhysicalRoute
   '/settings': typeof SettingsRoute
@@ -82,13 +82,13 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/academic': typeof AcademicRouteWithChildren
+  '/academic': typeof AcademicRoute
   '/dashboard': typeof DashboardRoute
   '/physical': typeof PhysicalRoute
   '/settings': typeof SettingsRoute
   '/skills': typeof SkillsRoute
   '/weekly': typeof WeeklyRoute
-  '/academic/$courseId': typeof AcademicCourseIdRoute
+  '/academic_/$courseId': typeof AcademicCourseIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -120,17 +120,18 @@ export interface FileRouteTypes {
     | '/settings'
     | '/skills'
     | '/weekly'
-    | '/academic/$courseId'
+    | '/academic_/$courseId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AcademicRoute: typeof AcademicRouteWithChildren
+  AcademicRoute: typeof AcademicRoute
   DashboardRoute: typeof DashboardRoute
   PhysicalRoute: typeof PhysicalRoute
   SettingsRoute: typeof SettingsRoute
   SkillsRoute: typeof SkillsRoute
   WeeklyRoute: typeof WeeklyRoute
+  AcademicCourseIdRoute: typeof AcademicCourseIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -184,36 +185,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/academic/$courseId': {
-      id: '/academic/$courseId'
-      path: '/$courseId'
+    '/academic_/$courseId': {
+      id: '/academic_/$courseId'
+      path: '/academic/$courseId'
       fullPath: '/academic/$courseId'
       preLoaderRoute: typeof AcademicCourseIdRouteImport
-      parentRoute: typeof AcademicRoute
+      parentRoute: typeof rootRouteImport
     }
   }
 }
 
-interface AcademicRouteChildren {
-  AcademicCourseIdRoute: typeof AcademicCourseIdRoute
-}
-
-const AcademicRouteChildren: AcademicRouteChildren = {
-  AcademicCourseIdRoute: AcademicCourseIdRoute,
-}
-
-const AcademicRouteWithChildren = AcademicRoute._addFileChildren(
-  AcademicRouteChildren,
-)
-
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AcademicRoute: AcademicRouteWithChildren,
+  AcademicRoute: AcademicRoute,
   DashboardRoute: DashboardRoute,
   PhysicalRoute: PhysicalRoute,
   SettingsRoute: SettingsRoute,
   SkillsRoute: SkillsRoute,
   WeeklyRoute: WeeklyRoute,
+  AcademicCourseIdRoute: AcademicCourseIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
