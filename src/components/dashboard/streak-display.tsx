@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { FlameIcon, BookOpenIcon, DumbbellIcon, TargetIcon, SmileIcon } from 'lucide-react'
+import { BookOpenIcon, DumbbellIcon, FlameIcon, SmileIcon, TargetIcon } from 'lucide-react'
 import { tauri } from '@/lib/tauri'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 

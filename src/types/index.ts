@@ -35,7 +35,7 @@ export interface CourseAnalytics {
   total_hours: number
   sessions_count: number
   avg_session_duration: number
-  weekly_history: WeeklyHours[]
+  weekly_history: Array<WeeklyHours>
 }
 
 export interface WeeklyHours {
@@ -109,7 +109,7 @@ export interface WorkoutExercise {
 
 // Workout with exercises (for display)
 export interface WorkoutWithExercises extends Workout {
-  exercises: WorkoutExercise[]
+  exercises: Array<WorkoutExercise>
 }
 
 // Template types
@@ -133,7 +133,7 @@ export interface WorkoutTemplateExercise {
 }
 
 export interface WorkoutTemplateWithExercises extends WorkoutTemplate {
-  exercises: WorkoutTemplateExercise[]
+  exercises: Array<WorkoutTemplateExercise>
 }
 
 export interface Exercise {
@@ -205,9 +205,9 @@ export interface AgentRecommendation {
   uncertainty: number
   ucb_score: number
   explanation: string
-  top_features: FeatureContribution[]
-  similar_experiences: PastExperience[]
-  alternatives: AlternativeAction[]
+  top_features: Array<FeatureContribution>
+  similar_experiences: Array<PastExperience>
+  alternatives: Array<AlternativeAction>
   confidence_level: 'low' | 'medium' | 'high'
   recommendation_id?: number
 }
@@ -288,11 +288,11 @@ export interface DetailedStats {
   study_hours_week: number
   study_target_week: number
   study_percent: number
-  study_breakdown: CourseProgress[]
+  study_breakdown: Array<CourseProgress>
   practice_hours_week: number
   practice_target_week: number
   practice_percent: number
-  practice_breakdown: SkillProgress[]
+  practice_breakdown: Array<SkillProgress>
   workouts_week: number
   workout_target_week: number
   workout_percent: number

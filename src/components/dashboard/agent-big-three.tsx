@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { CheckCircle2Icon, CircleIcon, PlusIcon, StarIcon } from 'lucide-react'
 
+import type { BigThreeGoal, BigThreeInput } from '@/types'
 import { useBigThree } from '@/hooks/useIntelligence'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -21,7 +22,6 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Slider } from '@/components/ui/slider'
-import type { BigThreeGoal, BigThreeInput } from '@/types'
 
 const CATEGORIES = [
   { value: 'productivity', label: 'Productivity', icon: '💻' },
@@ -141,7 +141,7 @@ function AddGoalDialog({
   onAdd,
   existingCount,
 }: {
-  onAdd: (goals: BigThreeInput[]) => void
+  onAdd: (goals: Array<BigThreeInput>) => void
   existingCount: number
 }) {
   const [open, setOpen] = useState(false)
@@ -239,7 +239,7 @@ export function AgentBigThree() {
   const completedCount = goals.filter((g) => g.is_completed).length
   const progress = goals.length > 0 ? (completedCount / goals.length) * 100 : 0
 
-  const handleAddGoal = (newGoals: BigThreeInput[]) => {
+  const handleAddGoal = (newGoals: Array<BigThreeInput>) => {
     // Append new goals to existing ones
     const existingGoals = goals.map((g) => ({
       title: g.title,

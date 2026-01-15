@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type {
+  PomodoroTimerMode,
+  PomodoroTimerState,
+} from '@/lib/pomodoroPersistence'
 import {
+  clearPomodoroRuntime,
   loadPomodoroState,
   savePomodoroState,
-  clearPomodoroRuntime,
-  type PomodoroTimerMode,
-  type PomodoroTimerState,
 } from '@/lib/pomodoroPersistence'
 
 type TimerState = PomodoroTimerState
@@ -105,7 +107,7 @@ export function useTimer({
   }, [])
 
   const applyPhaseTransition = useCallback(
-    async (completedMode: TimerMode) => {
+    (completedMode: TimerMode) => {
       if (completingRef.current) return
       completingRef.current = true
       try {

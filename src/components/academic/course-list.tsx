@@ -7,6 +7,7 @@ import {
   Play,
   Trash2Icon,
 } from 'lucide-react'
+import { CourseForm, EditCourseButton } from './course-form'
 import { useCourses, useCoursesWithProgress } from '@/hooks/useCourses'
 import { fromNow } from '@/lib/time'
 import { cn } from '@/lib/utils'
@@ -20,7 +21,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { CourseForm, EditCourseButton } from './course-form'
 
 export function CourseList() {
   const { deleteCourse } = useCourses()

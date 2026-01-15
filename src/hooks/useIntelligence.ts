@@ -116,7 +116,7 @@ export function useBigThree() {
 
   // Set Big 3 goals
   const setGoals = useMutation({
-    mutationFn: (goals: BigThreeInput[]) => tauri.setBigThree(goals),
+    mutationFn: (goals: Array<BigThreeInput>) => tauri.setBigThree(goals),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: BIG_THREE_KEY })
     },

@@ -1,18 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import {
-  PlayIcon,
   PauseIcon,
+  PlayIcon,
   RotateCcwIcon,
-  SkipForwardIcon,
   SettingsIcon,
+  SkipForwardIcon,
 } from 'lucide-react'
 import { useTimer } from '@/hooks/useTimer'
 import { useCourses } from '@/hooks/useCourses'
 import { useSessions } from '@/hooks/useSessions'
 import {
+  clearPomodoroRuntime,
   loadPomodoroState,
   savePomodoroState,
-  clearPomodoroRuntime,
 } from '@/lib/pomodoroPersistence'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -48,7 +48,7 @@ export function PomodoroTimer({ initialCourseId }: PomodoroTimerProps) {
   const [selectedCourseId, setSelectedCourseId] = useState<string>(
     initialCourseId !== undefined
       ? String(initialCourseId)
-      : (initial.selectedCourseId ?? 'none'),
+      : initial.selectedCourseId,
   )
   const [activeSessionId, setActiveSessionId] = useState<number | null>(
     initial.activeSessionId ?? null,

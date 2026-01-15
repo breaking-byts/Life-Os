@@ -1,12 +1,12 @@
-import { Trash2Icon, ClockIcon } from 'lucide-react'
+import { ClockIcon, Trash2Icon } from 'lucide-react'
+import { EditSkillButton, SkillForm } from './skill-form'
+import { PracticeForm } from './practice-form'
 import { useSkills } from '@/hooks/useSkills'
 import { fromNow } from '@/lib/time'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
-import { SkillForm, EditSkillButton } from './skill-form'
-import { PracticeForm } from './practice-form'
 
 export function SkillList() {
   const { skillsQuery, deleteSkill } = useSkills()

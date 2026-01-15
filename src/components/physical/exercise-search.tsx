@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
-import { SearchIcon, Loader2Icon, PlusIcon } from 'lucide-react'
+import { Loader2Icon, PlusIcon, SearchIcon } from 'lucide-react'
+import type { Exercise } from '@/types'
 import { useExercises } from '@/hooks/useExercises'
 import { tauri } from '@/lib/tauri'
-import type { Exercise } from '@/types'
 
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -62,7 +62,7 @@ export function ExerciseSearch({
         )}
       </div>
 
-      {open && exercises && exercises.length > 0 && (
+      {open && exercises.length > 0 && (
         <div className="absolute z-50 mt-1 w-full bg-popover border rounded-md shadow-lg">
           <ScrollArea className="max-h-64">
             <div className="p-1">
@@ -96,7 +96,7 @@ export function ExerciseSearch({
       {open &&
         normalizedQuery.length > 1 &&
         !isLoading &&
-        exercises?.length === 0 && (
+        exercises.length === 0 && (
           <div className="absolute z-50 mt-1 w-full bg-popover border rounded-md shadow-lg">
             <button
               type="button"
