@@ -331,16 +331,24 @@ pub async fn get_detailed_stats(state: State<'_, DbState>) -> Result<DetailedSta
     .unwrap_or((3, 5));
     
     // Get study hours breakdown by course
-    let course_rows = sqlx::query_as::<_, (i64, String, Option<String>, String, f64, Option<f64>, Option<f64>)>(
+    let course_rows = sqlx::query_as::<_, (i64, String, Option<String>, String, f64, Option<f64>, Option<f64>, f64)>(
         r#"
-        SELECT 
+        SELECT
             c.id,
             c.name,
             c.code,
             c.color,
             c.target_weekly_hours,
             c.current_grade,
-            c.target_grade
+            c.target_grade,
+            (
+                SELECT COALESCE(SUM(s.duration_minutes), 0) / 60.0
+                FROM sessions s
+                WHERE s.session_type = 'study'
+                  AND s.reference_type = 'course'
+                  AND s.reference_id = c.id
+                  AND s.started_at >= date('now', 'weekday 0', '-7 days')
+            ) as hours_this_week
         FROM courses c
         WHERE c.is_active = 1
         ORDER BY c.name
@@ -349,37 +357,21 @@ pub async fn get_detailed_stats(state: State<'_, DbState>) -> Result<DetailedSta
     .fetch_all(pool)
     .await
     .map_err(|e| e.to_string())?;
-    
+
     let mut study_breakdown: Vec<CourseProgress> = Vec::new();
     let mut study_hours_week = 0.0;
     let mut study_target_week = 0.0;
-    
-    for (course_id, name, code, color, target_hours, current_grade, target_grade) in course_rows {
-        // Get hours studied this week for this course
-        let hours_this_week: f64 = sqlx::query_scalar(
-            r#"
-            SELECT COALESCE(SUM(duration_minutes), 0) / 60.0
-            FROM sessions
-            WHERE session_type = 'study'
-              AND reference_type = 'course'
-              AND reference_id = ?
-              AND started_at >= date('now', 'weekday 0', '-7 days')
-            "#
-        )
-        .bind(course_id)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(0.0);
-        
+
+    for (course_id, name, code, color, target_hours, current_grade, target_grade, hours_this_week) in course_rows {
         study_hours_week += hours_this_week;
         study_target_week += target_hours;
-        
+
         let percent = if target_hours > 0.0 {
             (hours_this_week / target_hours * 100.0).min(100.0)
         } else {
             0.0
         };
-        
+
         study_breakdown.push(CourseProgress {
             course_id,
             course_name: name,
@@ -400,15 +392,22 @@ pub async fn get_detailed_stats(state: State<'_, DbState>) -> Result<DetailedSta
     };
     
     // Get practice hours breakdown by skill
-    let skill_rows = sqlx::query_as::<_, (i64, String, Option<String>, f64, f64, i64)>(
+    let skill_rows = sqlx::query_as::<_, (i64, String, Option<String>, f64, f64, i64, f64, f64)>(
         r#"
-        SELECT 
+        SELECT
             s.id,
             s.name,
             s.category,
             s.target_weekly_hours,
             s.total_hours,
-            s.current_level
+            s.current_level,
+            (
+                SELECT COALESCE(SUM(p.duration_minutes), 0) / 60.0
+                FROM practice_logs p
+                WHERE p.skill_id = s.id
+                  AND p.logged_at >= date('now', 'weekday 0', '-7 days')
+            ) as hours_this_week,
+            COALESCE(s.target_hours, 100.0) as target_hours
         FROM skills s
         ORDER BY s.name
         "#
@@ -416,56 +415,33 @@ pub async fn get_detailed_stats(state: State<'_, DbState>) -> Result<DetailedSta
     .fetch_all(pool)
     .await
     .map_err(|e| e.to_string())?;
-    
+
     let mut practice_breakdown: Vec<SkillProgress> = Vec::new();
     let mut practice_hours_week = 0.0;
     let mut practice_target_week = 0.0;
     let mut active_skills_count = 0;
-    
-    for (skill_id, name, category, target_weekly_hours, total_hours, current_level) in skill_rows {
-        // Get hours practiced this week for this skill
-        let hours_this_week: f64 = sqlx::query_scalar(
-            r#"
-            SELECT COALESCE(SUM(duration_minutes), 0) / 60.0
-            FROM practice_logs
-            WHERE skill_id = ?
-              AND logged_at >= date('now', 'weekday 0', '-7 days')
-            "#
-        )
-        .bind(skill_id)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(0.0);
-        
+
+    for (skill_id, name, category, target_weekly_hours, total_hours, current_level, hours_this_week, target_hours) in skill_rows {
         practice_hours_week += hours_this_week;
         practice_target_week += target_weekly_hours;
-        
+
         // Count as active if practiced this week
         if hours_this_week > 0.0 {
             active_skills_count += 1;
         }
-        
+
         let weekly_percent = if target_weekly_hours > 0.0 {
             (hours_this_week / target_weekly_hours * 100.0).min(100.0)
         } else {
             0.0
         };
-        
-        // Get target_hours (mastery goal), default to 100
-        let target_hours: f64 = sqlx::query_scalar(
-            "SELECT COALESCE(target_hours, 100.0) FROM skills WHERE id = ?"
-        )
-        .bind(skill_id)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(100.0);
-        
+
         let mastery_percent = if target_hours > 0.0 {
             (total_hours / target_hours * 100.0).min(100.0)
         } else {
             0.0
         };
-        
+
         practice_breakdown.push(SkillProgress {
             skill_id,
             skill_name: name,
