@@ -1,0 +1,1614 @@
+diff --git a/eslint.config.js b/eslint.config.js
+index 676b32a..0ba2cfe 100644
+--- a/eslint.config.js
++++ b/eslint.config.js
+@@ -2,4 +2,16 @@
+
+ import { tanstackConfig } from '@tanstack/eslint-config'
+
+-export default [...tanstackConfig]
++export default [
++  ...tanstackConfig,
++  {
++    ignores: ['eslint.config.js', 'prettier.config.js'],
++  },
++  {
++    rules: {
++      // Allow defensive null checks for API responses where runtime values may be null
++      // even if TypeScript types say otherwise
++      '@typescript-eslint/no-unnecessary-condition': 'off',
++    },
++  },
++]
+diff --git a/src/components/academic/assignment-form.tsx b/src/components/academic/assignment-form.tsx
+index 2bb12e6..298b02e 100644
+--- a/src/components/academic/assignment-form.tsx
++++ b/src/components/academic/assignment-form.tsx
+@@ -1,169 +1,187 @@
+-import { useState, useEffect } from 'react'
+-import { PlusIcon, Pencil } from 'lucide-react'
+-import { useAssignments } from '@/hooks/useAssignments'
++import { useEffect, useState } from 'react'
++import { Pencil, PlusIcon } from 'lucide-react'
+ import type { Assignment } from '@/types'
++import { useAssignments } from '@/hooks/useAssignments'
+ import { formatDate } from '@/lib/time'
+
+ import { Button } from '@/components/ui/button'
+ import {
+-    Dialog,
+-    DialogContent,
+-    DialogDescription,
+-    DialogFooter,
+-    DialogHeader,
+-    DialogTitle,
+-    DialogTrigger,
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++  DialogTrigger,
+ } from '@/components/ui/dialog'
+ import { Input } from '@/components/ui/input'
+ import { Label } from '@/components/ui/label'
+ import { Textarea } from '@/components/ui/textarea'
+ import {
+-    Select,
+-    SelectContent,
+-    SelectItem,
+-    SelectTrigger,
+-    SelectValue,
++  Select,
++  SelectContent,
++  SelectItem,
++  SelectTrigger,
++  SelectValue,
+ } from '@/components/ui/select'
+
+ interface AssignmentFormProps {
+-    courseId: number
+-    assignment?: Assignment
+-    trigger?: React.ReactNode
++  courseId: number
++  assignment?: Assignment
++  trigger?: React.ReactNode
+ }
+
+-export function AssignmentForm({ courseId, assignment, trigger }: AssignmentFormProps) {
+-    const [open, setOpen] = useState(false)
+-    const { createAssignment, updateAssignment } = useAssignments(courseId)
+-    const isEditing = !!assignment
++export function AssignmentForm({
++  courseId,
++  assignment,
++  trigger,
++}: AssignmentFormProps) {
++  const [open, setOpen] = useState(false)
++  const { createAssignment, updateAssignment } = useAssignments(courseId)
++  const isEditing = !!assignment
+
+-    const [title, setTitle] = useState('')
+-    const [description, setDescription] = useState('')
+-    const [dueDate, setDueDate] = useState('')
+-    const [priority, setPriority] = useState<string>('medium')
++  const [title, setTitle] = useState('')
++  const [description, setDescription] = useState('')
++  const [dueDate, setDueDate] = useState('')
++  const [priority, setPriority] = useState<string>('medium')
+
+-    useEffect(() => {
+-        if (assignment) {
+-            setTitle(assignment.title)
+-            setDescription(assignment.description ?? '')
+-            setDueDate(assignment.due_date ? formatDate(assignment.due_date, 'yyyy-MM-dd') : '')
+-            setPriority(assignment.priority ?? 'medium')
+-        } else {
+-            setTitle('')
+-            setDescription('')
+-            setDueDate('')
+-            setPriority('medium')
+-        }
+-    }, [assignment, open])
++  useEffect(() => {
++    if (assignment) {
++      setTitle(assignment.title)
++      setDescription(assignment.description ?? '')
++      setDueDate(
++        assignment.due_date
++          ? formatDate(assignment.due_date, 'yyyy-MM-dd')
++          : '',
++      )
++      setPriority(assignment.priority ?? 'medium')
++    } else {
++      setTitle('')
++      setDescription('')
++      setDueDate('')
++      setPriority('medium')
++    }
++  }, [assignment, open])
+
+-    const handleSubmit = async (e: React.FormEvent) => {
+-        e.preventDefault()
+-        const data = {
+-            course_id: courseId,
+-            title,
+-            description: description || undefined,
+-            due_date: dueDate ? new Date(dueDate).toISOString() : undefined,
+-            priority,
+-        }
++  const handleSubmit = async (e: React.FormEvent) => {
++    e.preventDefault()
++    const data = {
++      course_id: courseId,
++      title,
++      description: description || undefined,
++      due_date: dueDate ? new Date(dueDate).toISOString() : undefined,
++      priority,
++    }
+
+-        if (isEditing && assignment) {
+-            await updateAssignment.mutateAsync({ id: assignment.id, data })
+-        } else {
+-            await createAssignment.mutateAsync(data)
+-        }
+-        setOpen(false)
++    if (isEditing) {
++      await updateAssignment.mutateAsync({ id: assignment.id, data })
++    } else {
++      await createAssignment.mutateAsync(data)
+     }
++    setOpen(false)
++  }
+
+-    const isPending = createAssignment.isPending || updateAssignment.isPending
++  const isPending = createAssignment.isPending || updateAssignment.isPending
+
+-    return (
+-        <Dialog open={open} onOpenChange={setOpen}>
+-            <DialogTrigger asChild>
+-                {trigger ?? (
+-                    <Button size="sm" variant="outline">
+-                        <PlusIcon className="mr-1 h-4 w-4" />
+-                        New Assignment
+-                    </Button>
+-                )}
+-            </DialogTrigger>
+-            <DialogContent className="sm:max-w-md">
+-                <form onSubmit={handleSubmit}>
+-                    <DialogHeader>
+-                        <DialogTitle>{isEditing ? 'Edit Assignment' : 'New Assignment'}</DialogTitle>
+-                        <DialogDescription>
+-                            {isEditing ? 'Update assignment details.' : 'Add a new assignment.'}
+-                        </DialogDescription>
+-                    </DialogHeader>
++  return (
++    <Dialog open={open} onOpenChange={setOpen}>
++      <DialogTrigger asChild>
++        {trigger ?? (
++          <Button size="sm" variant="outline">
++            <PlusIcon className="mr-1 h-4 w-4" />
++            New Assignment
++          </Button>
++        )}
++      </DialogTrigger>
++      <DialogContent className="sm:max-w-md">
++        <form onSubmit={handleSubmit}>
++          <DialogHeader>
++            <DialogTitle>
++              {isEditing ? 'Edit Assignment' : 'New Assignment'}
++            </DialogTitle>
++            <DialogDescription>
++              {isEditing
++                ? 'Update assignment details.'
++                : 'Add a new assignment.'}
++            </DialogDescription>
++          </DialogHeader>
+
+-                    <div className="grid gap-4 py-4">
+-                        <div className="grid gap-2">
+-                            <Label htmlFor="title">Title *</Label>
+-                            <Input
+-                                id="title"
+-                                value={title}
+-                                onChange={(e) => setTitle(e.target.value)}
+-                                placeholder="e.g. Problem Set 3"
+-                                required
+-                            />
+-                        </div>
++          <div className="grid gap-4 py-4">
++            <div className="grid gap-2">
++              <Label htmlFor="title">Title *</Label>
++              <Input
++                id="title"
++                value={title}
++                onChange={(e) => setTitle(e.target.value)}
++                placeholder="e.g. Problem Set 3"
++                required
++              />
++            </div>
+
+-                        <div className="grid gap-2">
+-                            <Label htmlFor="description">Description</Label>
+-                            <Textarea
+-                                id="description"
+-                                value={description}
+-                                onChange={(e) => setDescription(e.target.value)}
+-                                placeholder="Optional notes..."
+-                                rows={2}
+-                            />
+-                        </div>
++            <div className="grid gap-2">
++              <Label htmlFor="description">Description</Label>
++              <Textarea
++                id="description"
++                value={description}
++                onChange={(e) => setDescription(e.target.value)}
++                placeholder="Optional notes..."
++                rows={2}
++              />
++            </div>
+
+-                        <div className="grid grid-cols-2 gap-4">
+-                            <div className="grid gap-2">
+-                                <Label htmlFor="due">Due Date</Label>
+-                                <Input
+-                                    id="due"
+-                                    type="date"
+-                                    value={dueDate}
+-                                    onChange={(e) => setDueDate(e.target.value)}
+-                                />
+-                            </div>
+-                            <div className="grid gap-2">
+-                                <Label>Priority</Label>
+-                                <Select value={priority} onValueChange={setPriority}>
+-                                    <SelectTrigger>
+-                                        <SelectValue />
+-                                    </SelectTrigger>
+-                                    <SelectContent>
+-                                        <SelectItem value="low">Low</SelectItem>
+-                                        <SelectItem value="medium">Medium</SelectItem>
+-                                        <SelectItem value="high">High</SelectItem>
+-                                    </SelectContent>
+-                                </Select>
+-                            </div>
+-                        </div>
+-                    </div>
++            <div className="grid grid-cols-2 gap-4">
++              <div className="grid gap-2">
++                <Label htmlFor="due">Due Date</Label>
++                <Input
++                  id="due"
++                  type="date"
++                  value={dueDate}
++                  onChange={(e) => setDueDate(e.target.value)}
++                />
++              </div>
++              <div className="grid gap-2">
++                <Label>Priority</Label>
++                <Select value={priority} onValueChange={setPriority}>
++                  <SelectTrigger>
++                    <SelectValue />
++                  </SelectTrigger>
++                  <SelectContent>
++                    <SelectItem value="low">Low</SelectItem>
++                    <SelectItem value="medium">Medium</SelectItem>
++                    <SelectItem value="high">High</SelectItem>
++                  </SelectContent>
++                </Select>
++              </div>
++            </div>
++          </div>
+
+-                    <DialogFooter>
+-                        <Button type="submit" disabled={!title || isPending}>
+-                            {isPending ? 'Saving...' : isEditing ? 'Update' : 'Create'}
+-                        </Button>
+-                    </DialogFooter>
+-                </form>
+-            </DialogContent>
+-        </Dialog>
+-    )
++          <DialogFooter>
++            <Button type="submit" disabled={!title || isPending}>
++              {isPending ? 'Saving...' : isEditing ? 'Update' : 'Create'}
++            </Button>
++          </DialogFooter>
++        </form>
++      </DialogContent>
++    </Dialog>
++  )
+ }
+
+-export function EditAssignmentButton({ courseId, assignment }: { courseId: number; assignment: Assignment }) {
+-    return (
+-        <AssignmentForm
+-            courseId={courseId}
+-            assignment={assignment}
+-            trigger={
+-                <Button variant="ghost" size="icon-sm">
+-                    <Pencil className="h-3 w-3" />
+-                </Button>
+-            }
+-        />
+-    )
++export function EditAssignmentButton({
++  courseId,
++  assignment,
++}: {
++  courseId: number
++  assignment: Assignment
++}) {
++  return (
++    <AssignmentForm
++      courseId={courseId}
++      assignment={assignment}
++      trigger={
++        <Button variant="ghost" size="icon-sm">
++          <Pencil className="h-3 w-3" />
++        </Button>
++      }
++    />
++  )
+ }
+diff --git a/src/components/academic/course-detail.tsx b/src/components/academic/course-detail.tsx
+index 34d579d..e7d4485 100644
+--- a/src/components/academic/course-detail.tsx
++++ b/src/components/academic/course-detail.tsx
+@@ -1,5 +1,5 @@
+ import { useMemo, useState } from 'react'
+-import { useParams, Link, useNavigate } from '@tanstack/react-router'
++import { Link, useNavigate, useParams } from '@tanstack/react-router'
+ import {
+   AlertCircle,
+   ArrowLeft,
+@@ -12,11 +12,13 @@ import {
+   MapPin,
+   Play,
+   Target,
+-  TrendingUp,
+   Trash2Icon,
++  TrendingUp,
+ } from 'lucide-react'
++import { AssignmentForm, EditAssignmentButton } from './assignment-form'
++import { EditExamButton, ExamForm } from './exam-form'
+ import { useAssignments } from '@/hooks/useAssignments'
+-import { useCourses, useCourseAnalytics } from '@/hooks/useCourses'
++import { useCourseAnalytics, useCourses } from '@/hooks/useCourses'
+ import { useExams } from '@/hooks/useExams'
+ import {
+   formatDate,
+@@ -31,8 +33,6 @@ import { Calendar } from '@/components/ui/calendar'
+ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+ import { Progress } from '@/components/ui/progress'
+ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+-import { AssignmentForm, EditAssignmentButton } from './assignment-form'
+-import { ExamForm, EditExamButton } from './exam-form'
+
+ export function CourseDetail() {
+   const { courseId } = useParams({ from: '/academic_/$courseId' })
+@@ -61,7 +61,7 @@ export function CourseDetail() {
+
+   // Get dates with events for calendar
+   const eventDates = useMemo(() => {
+-    const dates: Date[] = []
++    const dates: Array<Date> = []
+     for (const a of assignments) {
+       if (a.due_date) dates.push(new Date(a.due_date))
+     }
+diff --git a/src/components/academic/course-form.tsx b/src/components/academic/course-form.tsx
+index ec825af..c99a419 100644
+--- a/src/components/academic/course-form.tsx
++++ b/src/components/academic/course-form.tsx
+@@ -1,7 +1,7 @@
+-import { useState, useEffect } from 'react'
+-import { PlusIcon, Pencil } from 'lucide-react'
+-import { useCourses } from '@/hooks/useCourses'
++import { useEffect, useState } from 'react'
++import { Pencil, PlusIcon } from 'lucide-react'
+ import type { Course } from '@/types'
++import { useCourses } from '@/hooks/useCourses'
+
+ import { Button } from '@/components/ui/button'
+ import {
+@@ -22,8 +22,14 @@ interface CourseFormProps {
+ }
+
+ const COLORS = [
+-  '#3b82f6', '#ef4444', '#10b981', '#f59e0b',
+-  '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16',
++  '#3b82f6',
++  '#ef4444',
++  '#10b981',
++  '#f59e0b',
++  '#8b5cf6',
++  '#ec4899',
++  '#06b6d4',
++  '#84cc16',
+ ]
+
+ export function CourseForm({ course, trigger }: CourseFormProps) {
+@@ -63,7 +69,7 @@ export function CourseForm({ course, trigger }: CourseFormProps) {
+       target_weekly_hours: parseFloat(targetHours) || 6,
+     }
+
+-    if (isEditing && course) {
++    if (isEditing) {
+       await updateCourse.mutateAsync({ id: course.id, data })
+     } else {
+       await createCourse.mutateAsync(data)
+@@ -86,9 +92,13 @@ export function CourseForm({ course, trigger }: CourseFormProps) {
+       <DialogContent className="sm:max-w-md">
+         <form onSubmit={handleSubmit}>
+           <DialogHeader>
+-            <DialogTitle>{isEditing ? 'Edit Course' : 'New Course'}</DialogTitle>
++            <DialogTitle>
++              {isEditing ? 'Edit Course' : 'New Course'}
++            </DialogTitle>
+             <DialogDescription>
+-              {isEditing ? 'Update course details.' : 'Add a new course to track.'}
++              {isEditing
++                ? 'Update course details.'
++                : 'Add a new course to track.'}
+             </DialogDescription>
+           </DialogHeader>
+
+diff --git a/src/components/academic/course-list.tsx b/src/components/academic/course-list.tsx
+index d751daa..e8e40e4 100644
+--- a/src/components/academic/course-list.tsx
++++ b/src/components/academic/course-list.tsx
+@@ -7,6 +7,7 @@ import {
+   Play,
+   Trash2Icon,
+ } from 'lucide-react'
++import { CourseForm, EditCourseButton } from './course-form'
+ import { useCourses, useCoursesWithProgress } from '@/hooks/useCourses'
+ import { fromNow } from '@/lib/time'
+ import { cn } from '@/lib/utils'
+@@ -20,7 +21,6 @@ import {
+   TooltipProvider,
+   TooltipTrigger,
+ } from '@/components/ui/tooltip'
+-import { CourseForm, EditCourseButton } from './course-form'
+
+ export function CourseList() {
+   const { deleteCourse } = useCourses()
+diff --git a/src/components/academic/exam-form.tsx b/src/components/academic/exam-form.tsx
+index 9bab8a0..7451ba5 100644
+--- a/src/components/academic/exam-form.tsx
++++ b/src/components/academic/exam-form.tsx
+@@ -1,7 +1,7 @@
+-import { useState, useEffect } from 'react'
+-import { PlusIcon, Pencil } from 'lucide-react'
+-import { useExams } from '@/hooks/useExams'
++import { useEffect, useState } from 'react'
++import { Pencil, PlusIcon } from 'lucide-react'
+ import type { Exam } from '@/types'
++import { useExams } from '@/hooks/useExams'
+ import { formatDate } from '@/lib/time'
+
+ import { Button } from '@/components/ui/button'
+@@ -81,7 +81,7 @@ export function ExamForm({ courseId, exam, trigger }: ExamFormProps) {
+       notes: notes || undefined,
+     }
+
+-    if (isEditing && exam) {
++    if (isEditing) {
+       await updateExam.mutateAsync({ id: exam.id, data })
+     } else {
+       await createExam.mutateAsync(data)
+diff --git a/src/components/dashboard/agent-big-three.tsx b/src/components/dashboard/agent-big-three.tsx
+index dc500db..994913e 100644
+--- a/src/components/dashboard/agent-big-three.tsx
++++ b/src/components/dashboard/agent-big-three.tsx
+@@ -1,6 +1,7 @@
+ import { useState } from 'react'
+ import { CheckCircle2Icon, CircleIcon, PlusIcon, StarIcon } from 'lucide-react'
+
++import type { BigThreeGoal, BigThreeInput } from '@/types'
+ import { useBigThree } from '@/hooks/useIntelligence'
+ import { Badge } from '@/components/ui/badge'
+ import { Button } from '@/components/ui/button'
+@@ -21,7 +22,6 @@ import {
+   DialogTrigger,
+ } from '@/components/ui/dialog'
+ import { Slider } from '@/components/ui/slider'
+-import type { BigThreeGoal, BigThreeInput } from '@/types'
+
+ const CATEGORIES = [
+   { value: 'productivity', label: 'Productivity', icon: '💻' },
+@@ -141,7 +141,7 @@ function AddGoalDialog({
+   onAdd,
+   existingCount,
+ }: {
+-  onAdd: (goals: BigThreeInput[]) => void
++  onAdd: (goals: Array<BigThreeInput>) => void
+   existingCount: number
+ }) {
+   const [open, setOpen] = useState(false)
+@@ -239,7 +239,7 @@ export function AgentBigThree() {
+   const completedCount = goals.filter((g) => g.is_completed).length
+   const progress = goals.length > 0 ? (completedCount / goals.length) * 100 : 0
+
+-  const handleAddGoal = (newGoals: BigThreeInput[]) => {
++  const handleAddGoal = (newGoals: Array<BigThreeInput>) => {
+     // Append new goals to existing ones
+     const existingGoals = goals.map((g) => ({
+       title: g.title,
+diff --git a/src/components/dashboard/agent-insight.tsx b/src/components/dashboard/agent-insight.tsx
+index f5446e0..e06aba4 100644
+--- a/src/components/dashboard/agent-insight.tsx
++++ b/src/components/dashboard/agent-insight.tsx
+@@ -1,10 +1,10 @@
+-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+-import { BrainIcon, RefreshCwIcon, ThumbsUpIcon, ThumbsDownIcon, SparklesIcon } from 'lucide-react'
++import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
++import { BrainIcon, RefreshCwIcon, SparklesIcon, ThumbsDownIcon, ThumbsUpIcon } from 'lucide-react'
+ import { tauri } from '@/lib/tauri'
+ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+ import { Badge } from '@/components/ui/badge'
+ import { Button } from '@/components/ui/button'
+-import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
++import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+
+ interface Insight {
+   icon: string
+diff --git a/src/components/dashboard/agent-recommendations.tsx b/src/components/dashboard/agent-recommendations.tsx
+index 69b4fc6..76a0de8 100644
+--- a/src/components/dashboard/agent-recommendations.tsx
++++ b/src/components/dashboard/agent-recommendations.tsx
+@@ -11,6 +11,7 @@ import {
+ } from 'lucide-react'
+ import { useState } from 'react'
+
++import type { AgentRecommendation } from '@/types'
+ import { useIntelligence } from '@/hooks/useIntelligence'
+ import { Badge } from '@/components/ui/badge'
+ import { Button } from '@/components/ui/button'
+@@ -22,7 +23,6 @@ import {
+   TooltipProvider,
+   TooltipTrigger,
+ } from '@/components/ui/tooltip'
+-import type { AgentRecommendation } from '@/types'
+
+ function getConfidenceColor(level: string) {
+   switch (level) {
+diff --git a/src/components/dashboard/streak-display.tsx b/src/components/dashboard/streak-display.tsx
+index 53dabb2..575dfb4 100644
+--- a/src/components/dashboard/streak-display.tsx
++++ b/src/components/dashboard/streak-display.tsx
+@@ -1,5 +1,5 @@
+ import { useQuery } from '@tanstack/react-query'
+-import { FlameIcon, BookOpenIcon, DumbbellIcon, TargetIcon, SmileIcon } from 'lucide-react'
++import { BookOpenIcon, DumbbellIcon, FlameIcon, SmileIcon, TargetIcon } from 'lucide-react'
+ import { tauri } from '@/lib/tauri'
+ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+
+diff --git a/src/components/dashboard/today-view.tsx b/src/components/dashboard/today-view.tsx
+index 1fd5dc9..b9972be 100644
+--- a/src/components/dashboard/today-view.tsx
++++ b/src/components/dashboard/today-view.tsx
+@@ -1,9 +1,9 @@
++import { CheckinForm } from './checkin-form'
+ import { useCheckIn } from '@/hooks/useCheckIn'
+ import { Badge } from '@/components/ui/badge'
+ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+ import { Separator } from '@/components/ui/separator'
+ import { formatDate } from '@/lib/time'
+-import { CheckinForm } from './checkin-form'
+
+ const todayTasks = [
+   { title: 'Deep work block', detail: '90 min on priority course' },
+diff --git a/src/components/physical/exercise-search.tsx b/src/components/physical/exercise-search.tsx
+index d6547e9..35f7dbc 100644
+--- a/src/components/physical/exercise-search.tsx
++++ b/src/components/physical/exercise-search.tsx
+@@ -1,8 +1,8 @@
+ import { useMemo, useState } from 'react'
+-import { SearchIcon, Loader2Icon, PlusIcon } from 'lucide-react'
++import { Loader2Icon, PlusIcon, SearchIcon } from 'lucide-react'
++import type { Exercise } from '@/types'
+ import { useExercises } from '@/hooks/useExercises'
+ import { tauri } from '@/lib/tauri'
+-import type { Exercise } from '@/types'
+
+ import { Input } from '@/components/ui/input'
+ import { ScrollArea } from '@/components/ui/scroll-area'
+@@ -62,7 +62,7 @@ export function ExerciseSearch({
+         )}
+       </div>
+
+-      {open && exercises && exercises.length > 0 && (
++      {open && exercises.length > 0 && (
+         <div className="absolute z-50 mt-1 w-full bg-popover border rounded-md shadow-lg">
+           <ScrollArea className="max-h-64">
+             <div className="p-1">
+@@ -96,7 +96,7 @@ export function ExerciseSearch({
+       {open &&
+         normalizedQuery.length > 1 &&
+         !isLoading &&
+-        exercises?.length === 0 && (
++        exercises.length === 0 && (
+           <div className="absolute z-50 mt-1 w-full bg-popover border rounded-md shadow-lg">
+             <button
+               type="button"
+diff --git a/src/components/physical/gym-settings.tsx b/src/components/physical/gym-settings.tsx
+index ea07b2f..765c4ac 100644
+--- a/src/components/physical/gym-settings.tsx
++++ b/src/components/physical/gym-settings.tsx
+@@ -1,4 +1,4 @@
+-import { useState, useEffect } from 'react'
++import { useEffect, useState } from 'react'
+ import { SettingsIcon } from 'lucide-react'
+ import { Button } from '@/components/ui/button'
+ import {
+diff --git a/src/components/skills/practice-form.tsx b/src/components/skills/practice-form.tsx
+index 103241c..923d5a8 100644
+--- a/src/components/skills/practice-form.tsx
++++ b/src/components/skills/practice-form.tsx
+@@ -1,141 +1,152 @@
+ import { useState } from 'react'
+ import { PlusIcon } from 'lucide-react'
+ import { useMutation, useQueryClient } from '@tanstack/react-query'
++import type { Skill } from '@/types'
+ import { useSkills } from '@/hooks/useSkills'
+ import { tauri } from '@/lib/tauri'
+-import type { Skill } from '@/types'
+
+ import { Button } from '@/components/ui/button'
+ import {
+-    Dialog,
+-    DialogContent,
+-    DialogDescription,
+-    DialogFooter,
+-    DialogHeader,
+-    DialogTitle,
+-    DialogTrigger,
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++  DialogTrigger,
+ } from '@/components/ui/dialog'
+ import { Input } from '@/components/ui/input'
+ import { Label } from '@/components/ui/label'
+ import { Textarea } from '@/components/ui/textarea'
+ import {
+-    Select,
+-    SelectContent,
+-    SelectItem,
+-    SelectTrigger,
+-    SelectValue,
++  Select,
++  SelectContent,
++  SelectItem,
++  SelectTrigger,
++  SelectValue,
+ } from '@/components/ui/select'
+
+ interface PracticeFormProps {
+-    skill?: Skill
+-    trigger?: React.ReactNode
++  skill?: Skill
++  trigger?: React.ReactNode
+ }
+
+ export function PracticeForm({ skill, trigger }: PracticeFormProps) {
+-    const [open, setOpen] = useState(false)
+-    const { skillsQuery } = useSkills()
+-    const queryClient = useQueryClient()
++  const [open, setOpen] = useState(false)
++  const { skillsQuery } = useSkills()
++  const queryClient = useQueryClient()
+
+-    const [selectedSkillId, setSelectedSkillId] = useState(skill?.id?.toString() ?? '')
+-    const [duration, setDuration] = useState('30')
+-    const [notes, setNotes] = useState('')
++  const [selectedSkillId, setSelectedSkillId] = useState(
++    skill?.id.toString() ?? '',
++  )
++  const [duration, setDuration] = useState('30')
++  const [notes, setNotes] = useState('')
+
+-    const logPractice = useMutation({
+-        mutationFn: (data: { skill_id: number; duration_minutes: number; notes?: string }) =>
+-            tauri.logPractice(data),
+-        onSuccess: () => {
+-            queryClient.invalidateQueries({ queryKey: ['skills'] })
+-            queryClient.invalidateQueries({ queryKey: ['practice-logs'] })
+-        },
+-    })
++  const logPractice = useMutation({
++    mutationFn: (data: {
++      skill_id: number
++      duration_minutes: number
++      notes?: string
++    }) => tauri.logPractice(data),
++    onSuccess: () => {
++      queryClient.invalidateQueries({ queryKey: ['skills'] })
++      queryClient.invalidateQueries({ queryKey: ['practice-logs'] })
++    },
++  })
+
+-    const handleSubmit = async (e: React.FormEvent) => {
+-        e.preventDefault()
+-        if (!selectedSkillId) return
++  const handleSubmit = async (e: React.FormEvent) => {
++    e.preventDefault()
++    if (!selectedSkillId) return
+
+-        await logPractice.mutateAsync({
+-            skill_id: Number(selectedSkillId),
+-            duration_minutes: parseInt(duration) || 30,
+-            notes: notes || undefined,
+-        })
++    await logPractice.mutateAsync({
++      skill_id: Number(selectedSkillId),
++      duration_minutes: parseInt(duration) || 30,
++      notes: notes || undefined,
++    })
+
+-        setDuration('30')
+-        setNotes('')
+-        setOpen(false)
+-    }
++    setDuration('30')
++    setNotes('')
++    setOpen(false)
++  }
+
+-    const skills = skillsQuery.data ?? []
++  const skills = skillsQuery.data ?? []
+
+-    return (
+-        <Dialog open={open} onOpenChange={setOpen}>
+-            <DialogTrigger asChild>
+-                {trigger ?? (
+-                    <Button size="sm" variant="outline">
+-                        <PlusIcon className="mr-1 h-4 w-4" />
+-                        Log Practice
+-                    </Button>
+-                )}
+-            </DialogTrigger>
+-            <DialogContent className="sm:max-w-sm">
+-                <form onSubmit={handleSubmit}>
+-                    <DialogHeader>
+-                        <DialogTitle>Log Practice</DialogTitle>
+-                        <DialogDescription>
+-                            Record time spent practicing a skill.
+-                        </DialogDescription>
+-                    </DialogHeader>
++  return (
++    <Dialog open={open} onOpenChange={setOpen}>
++      <DialogTrigger asChild>
++        {trigger ?? (
++          <Button size="sm" variant="outline">
++            <PlusIcon className="mr-1 h-4 w-4" />
++            Log Practice
++          </Button>
++        )}
++      </DialogTrigger>
++      <DialogContent className="sm:max-w-sm">
++        <form onSubmit={handleSubmit}>
++          <DialogHeader>
++            <DialogTitle>Log Practice</DialogTitle>
++            <DialogDescription>
++              Record time spent practicing a skill.
++            </DialogDescription>
++          </DialogHeader>
+
+-                    <div className="grid gap-4 py-4">
+-                        {!skill && (
+-                            <div className="grid gap-2">
+-                                <Label>Skill *</Label>
+-                                <Select value={selectedSkillId} onValueChange={setSelectedSkillId}>
+-                                    <SelectTrigger>
+-                                        <SelectValue placeholder="Select skill" />
+-                                    </SelectTrigger>
+-                                    <SelectContent>
+-                                        {skills.map((s) => (
+-                                            <SelectItem key={s.id} value={String(s.id)}>
+-                                                {s.name}
+-                                            </SelectItem>
+-                                        ))}
+-                                    </SelectContent>
+-                                </Select>
+-                            </div>
+-                        )}
++          <div className="grid gap-4 py-4">
++            {!skill && (
++              <div className="grid gap-2">
++                <Label>Skill *</Label>
++                <Select
++                  value={selectedSkillId}
++                  onValueChange={setSelectedSkillId}
++                >
++                  <SelectTrigger>
++                    <SelectValue placeholder="Select skill" />
++                  </SelectTrigger>
++                  <SelectContent>
++                    {skills.map((s) => (
++                      <SelectItem key={s.id} value={String(s.id)}>
++                        {s.name}
++                      </SelectItem>
++                    ))}
++                  </SelectContent>
++                </Select>
++              </div>
++            )}
+
+-                        <div className="grid gap-2">
+-                            <Label htmlFor="duration">Duration (minutes) *</Label>
+-                            <Input
+-                                id="duration"
+-                                type="number"
+-                                min="1"
+-                                max="480"
+-                                value={duration}
+-                                onChange={(e) => setDuration(e.target.value)}
+-                                required
+-                            />
+-                        </div>
++            <div className="grid gap-2">
++              <Label htmlFor="duration">Duration (minutes) *</Label>
++              <Input
++                id="duration"
++                type="number"
++                min="1"
++                max="480"
++                value={duration}
++                onChange={(e) => setDuration(e.target.value)}
++                required
++              />
++            </div>
+
+-                        <div className="grid gap-2">
+-                            <Label htmlFor="notes">Notes</Label>
+-                            <Textarea
+-                                id="notes"
+-                                value={notes}
+-                                onChange={(e) => setNotes(e.target.value)}
+-                                placeholder="What did you work on?"
+-                                rows={2}
+-                            />
+-                        </div>
+-                    </div>
++            <div className="grid gap-2">
++              <Label htmlFor="notes">Notes</Label>
++              <Textarea
++                id="notes"
++                value={notes}
++                onChange={(e) => setNotes(e.target.value)}
++                placeholder="What did you work on?"
++                rows={2}
++              />
++            </div>
++          </div>
+
+-                    <DialogFooter>
+-                        <Button type="submit" disabled={!selectedSkillId || logPractice.isPending}>
+-                            {logPractice.isPending ? 'Saving...' : 'Log Practice'}
+-                        </Button>
+-                    </DialogFooter>
+-                </form>
+-            </DialogContent>
+-        </Dialog>
+-    )
++          <DialogFooter>
++            <Button
++              type="submit"
++              disabled={!selectedSkillId || logPractice.isPending}
++            >
++              {logPractice.isPending ? 'Saving...' : 'Log Practice'}
++            </Button>
++          </DialogFooter>
++        </form>
++      </DialogContent>
++    </Dialog>
++  )
+ }
+diff --git a/src/components/skills/skill-form.tsx b/src/components/skills/skill-form.tsx
+index d11c80d..4ff4b4f 100644
+--- a/src/components/skills/skill-form.tsx
++++ b/src/components/skills/skill-form.tsx
+@@ -1,163 +1,175 @@
+-import { useState, useEffect } from 'react'
+-import { PlusIcon, Pencil } from 'lucide-react'
+-import { useSkills } from '@/hooks/useSkills'
++import { useEffect, useState } from 'react'
++import { Pencil, PlusIcon } from 'lucide-react'
+ import type { Skill } from '@/types'
++import { useSkills } from '@/hooks/useSkills'
+
+ import { Button } from '@/components/ui/button'
+ import {
+-    Dialog,
+-    DialogContent,
+-    DialogDescription,
+-    DialogFooter,
+-    DialogHeader,
+-    DialogTitle,
+-    DialogTrigger,
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogFooter,
++  DialogHeader,
++  DialogTitle,
++  DialogTrigger,
+ } from '@/components/ui/dialog'
+ import { Input } from '@/components/ui/input'
+ import { Label } from '@/components/ui/label'
+ import { Textarea } from '@/components/ui/textarea'
+
+ interface SkillFormProps {
+-    skill?: Skill
+-    trigger?: React.ReactNode
++  skill?: Skill
++  trigger?: React.ReactNode
+ }
+
+-const CATEGORIES = ['Music', 'Art', 'Programming', 'Languages', 'Sports', 'Writing', 'Other']
++const CATEGORIES = [
++  'Music',
++  'Art',
++  'Programming',
++  'Languages',
++  'Sports',
++  'Writing',
++  'Other',
++]
+
+ export function SkillForm({ skill, trigger }: SkillFormProps) {
+-    const [open, setOpen] = useState(false)
+-    const { createSkill, updateSkill } = useSkills()
+-    const isEditing = !!skill
++  const [open, setOpen] = useState(false)
++  const { createSkill, updateSkill } = useSkills()
++  const isEditing = !!skill
+
+-    const [name, setName] = useState('')
+-    const [category, setCategory] = useState('')
+-    const [description, setDescription] = useState('')
+-    const [targetHours, setTargetHours] = useState('5')
++  const [name, setName] = useState('')
++  const [category, setCategory] = useState('')
++  const [description, setDescription] = useState('')
++  const [targetHours, setTargetHours] = useState('5')
+
+-    useEffect(() => {
+-        if (skill) {
+-            setName(skill.name)
+-            setCategory(skill.category ?? '')
+-            setDescription(skill.description ?? '')
+-            setTargetHours(String(skill.target_weekly_hours ?? 5))
+-        } else {
+-            setName('')
+-            setCategory('')
+-            setDescription('')
+-            setTargetHours('5')
+-        }
+-    }, [skill, open])
++  useEffect(() => {
++    if (skill) {
++      setName(skill.name)
++      setCategory(skill.category ?? '')
++      setDescription(skill.description ?? '')
++      setTargetHours(String(skill.target_weekly_hours ?? 5))
++    } else {
++      setName('')
++      setCategory('')
++      setDescription('')
++      setTargetHours('5')
++    }
++  }, [skill, open])
+
+-    const handleSubmit = async (e: React.FormEvent) => {
+-        e.preventDefault()
+-        const data = {
+-            name,
+-            category: category || undefined,
+-            description: description || undefined,
+-            target_weekly_hours: parseFloat(targetHours) || 5,
+-        }
++  const handleSubmit = async (e: React.FormEvent) => {
++    e.preventDefault()
++    const data = {
++      name,
++      category: category || undefined,
++      description: description || undefined,
++      target_weekly_hours: parseFloat(targetHours) || 5,
++    }
+
+-        if (isEditing && skill) {
+-            await updateSkill.mutateAsync({ id: skill.id, data })
+-        } else {
+-            await createSkill.mutateAsync(data)
+-        }
+-        setOpen(false)
++    if (isEditing) {
++      await updateSkill.mutateAsync({ id: skill.id, data })
++    } else {
++      await createSkill.mutateAsync(data)
+     }
++    setOpen(false)
++  }
+
+-    const isPending = createSkill.isPending || updateSkill.isPending
++  const isPending = createSkill.isPending || updateSkill.isPending
+
+-    return (
+-        <Dialog open={open} onOpenChange={setOpen}>
+-            <DialogTrigger asChild>
+-                {trigger ?? (
+-                    <Button size="sm">
+-                        <PlusIcon className="mr-1 h-4 w-4" />
+-                        New Skill
+-                    </Button>
+-                )}
+-            </DialogTrigger>
+-            <DialogContent className="sm:max-w-md">
+-                <form onSubmit={handleSubmit}>
+-                    <DialogHeader>
+-                        <DialogTitle>{isEditing ? 'Edit Skill' : 'New Skill'}</DialogTitle>
+-                        <DialogDescription>
+-                            {isEditing ? 'Update skill details.' : 'Add a new skill to track.'}
+-                        </DialogDescription>
+-                    </DialogHeader>
++  return (
++    <Dialog open={open} onOpenChange={setOpen}>
++      <DialogTrigger asChild>
++        {trigger ?? (
++          <Button size="sm">
++            <PlusIcon className="mr-1 h-4 w-4" />
++            New Skill
++          </Button>
++        )}
++      </DialogTrigger>
++      <DialogContent className="sm:max-w-md">
++        <form onSubmit={handleSubmit}>
++          <DialogHeader>
++            <DialogTitle>{isEditing ? 'Edit Skill' : 'New Skill'}</DialogTitle>
++            <DialogDescription>
++              {isEditing
++                ? 'Update skill details.'
++                : 'Add a new skill to track.'}
++            </DialogDescription>
++          </DialogHeader>
+
+-                    <div className="grid gap-4 py-4">
+-                        <div className="grid gap-2">
+-                            <Label htmlFor="name">Skill Name *</Label>
+-                            <Input
+-                                id="name"
+-                                value={name}
+-                                onChange={(e) => setName(e.target.value)}
+-                                placeholder="e.g. Guitar, Spanish, Drawing"
+-                                required
+-                            />
+-                        </div>
++          <div className="grid gap-4 py-4">
++            <div className="grid gap-2">
++              <Label htmlFor="name">Skill Name *</Label>
++              <Input
++                id="name"
++                value={name}
++                onChange={(e) => setName(e.target.value)}
++                placeholder="e.g. Guitar, Spanish, Drawing"
++                required
++              />
++            </div>
+
+-                        <div className="grid grid-cols-2 gap-4">
+-                            <div className="grid gap-2">
+-                                <Label htmlFor="category">Category</Label>
+-                                <Input
+-                                    id="category"
+-                                    value={category}
+-                                    onChange={(e) => setCategory(e.target.value)}
+-                                    placeholder="e.g. Music"
+-                                    list="categories"
+-                                />
+-                                <datalist id="categories">
+-                                    {CATEGORIES.map(c => <option key={c} value={c} />)}
+-                                </datalist>
+-                            </div>
+-                            <div className="grid gap-2">
+-                                <Label htmlFor="target">Weekly Target (hrs)</Label>
+-                                <Input
+-                                    id="target"
+-                                    type="number"
+-                                    min="1"
+-                                    max="40"
+-                                    step="0.5"
+-                                    value={targetHours}
+-                                    onChange={(e) => setTargetHours(e.target.value)}
+-                                />
+-                            </div>
+-                        </div>
++            <div className="grid grid-cols-2 gap-4">
++              <div className="grid gap-2">
++                <Label htmlFor="category">Category</Label>
++                <Input
++                  id="category"
++                  value={category}
++                  onChange={(e) => setCategory(e.target.value)}
++                  placeholder="e.g. Music"
++                  list="categories"
++                />
++                <datalist id="categories">
++                  {CATEGORIES.map((c) => (
++                    <option key={c} value={c} />
++                  ))}
++                </datalist>
++              </div>
++              <div className="grid gap-2">
++                <Label htmlFor="target">Weekly Target (hrs)</Label>
++                <Input
++                  id="target"
++                  type="number"
++                  min="1"
++                  max="40"
++                  step="0.5"
++                  value={targetHours}
++                  onChange={(e) => setTargetHours(e.target.value)}
++                />
++              </div>
++            </div>
+
+-                        <div className="grid gap-2">
+-                            <Label htmlFor="description">Notes</Label>
+-                            <Textarea
+-                                id="description"
+-                                value={description}
+-                                onChange={(e) => setDescription(e.target.value)}
+-                                placeholder="Optional description or goals..."
+-                                rows={2}
+-                            />
+-                        </div>
+-                    </div>
++            <div className="grid gap-2">
++              <Label htmlFor="description">Notes</Label>
++              <Textarea
++                id="description"
++                value={description}
++                onChange={(e) => setDescription(e.target.value)}
++                placeholder="Optional description or goals..."
++                rows={2}
++              />
++            </div>
++          </div>
+
+-                    <DialogFooter>
+-                        <Button type="submit" disabled={!name || isPending}>
+-                            {isPending ? 'Saving...' : isEditing ? 'Update' : 'Create'}
+-                        </Button>
+-                    </DialogFooter>
+-                </form>
+-            </DialogContent>
+-        </Dialog>
+-    )
++          <DialogFooter>
++            <Button type="submit" disabled={!name || isPending}>
++              {isPending ? 'Saving...' : isEditing ? 'Update' : 'Create'}
++            </Button>
++          </DialogFooter>
++        </form>
++      </DialogContent>
++    </Dialog>
++  )
+ }
+
+ export function EditSkillButton({ skill }: { skill: Skill }) {
+-    return (
+-        <SkillForm
+-            skill={skill}
+-            trigger={
+-                <Button variant="ghost" size="icon-sm">
+-                    <Pencil className="h-3 w-3" />
+-                </Button>
+-            }
+-        />
+-    )
++  return (
++    <SkillForm
++      skill={skill}
++      trigger={
++        <Button variant="ghost" size="icon-sm">
++          <Pencil className="h-3 w-3" />
++        </Button>
++      }
++    />
++  )
+ }
+diff --git a/src/components/skills/skill-list.tsx b/src/components/skills/skill-list.tsx
+index 9a78e1b..954bd7a 100644
+--- a/src/components/skills/skill-list.tsx
++++ b/src/components/skills/skill-list.tsx
+@@ -1,12 +1,12 @@
+-import { Trash2Icon, ClockIcon } from 'lucide-react'
++import { ClockIcon, Trash2Icon } from 'lucide-react'
++import { EditSkillButton, SkillForm } from './skill-form'
++import { PracticeForm } from './practice-form'
+ import { useSkills } from '@/hooks/useSkills'
+ import { fromNow } from '@/lib/time'
+ import { Badge } from '@/components/ui/badge'
+ import { Button } from '@/components/ui/button'
+ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+ import { Progress } from '@/components/ui/progress'
+-import { SkillForm, EditSkillButton } from './skill-form'
+-import { PracticeForm } from './practice-form'
+
+ export function SkillList() {
+   const { skillsQuery, deleteSkill } = useSkills()
+diff --git a/src/components/ui/pomodoro-timer.tsx b/src/components/ui/pomodoro-timer.tsx
+index bd5c149..54584d8 100644
+--- a/src/components/ui/pomodoro-timer.tsx
++++ b/src/components/ui/pomodoro-timer.tsx
+@@ -1,18 +1,18 @@
+-import { useState, useEffect } from 'react'
++import { useEffect, useState } from 'react'
+ import {
+-  PlayIcon,
+   PauseIcon,
++  PlayIcon,
+   RotateCcwIcon,
+-  SkipForwardIcon,
+   SettingsIcon,
++  SkipForwardIcon,
+ } from 'lucide-react'
+ import { useTimer } from '@/hooks/useTimer'
+ import { useCourses } from '@/hooks/useCourses'
+ import { useSessions } from '@/hooks/useSessions'
+ import {
++  clearPomodoroRuntime,
+   loadPomodoroState,
+   savePomodoroState,
+-  clearPomodoroRuntime,
+ } from '@/lib/pomodoroPersistence'
+ import { Button } from '@/components/ui/button'
+ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+@@ -48,7 +48,7 @@ export function PomodoroTimer({ initialCourseId }: PomodoroTimerProps) {
+   const [selectedCourseId, setSelectedCourseId] = useState<string>(
+     initialCourseId !== undefined
+       ? String(initialCourseId)
+-      : (initial.selectedCourseId ?? 'none'),
++      : initial.selectedCourseId,
+   )
+   const [activeSessionId, setActiveSessionId] = useState<number | null>(
+     initial.activeSessionId ?? null,
+diff --git a/src/components/weekly/weekly-review-list.tsx b/src/components/weekly/weekly-review-list.tsx
+index ade5618..8cc29f1 100644
+--- a/src/components/weekly/weekly-review-list.tsx
++++ b/src/components/weekly/weekly-review-list.tsx
+@@ -1,8 +1,8 @@
+ import { useQuery } from '@tanstack/react-query'
++import { WeeklyReviewForm } from './weekly-review-form'
+ import { tauri } from '@/lib/tauri'
+ import { formatDate } from '@/lib/time'
+ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+-import { WeeklyReviewForm } from './weekly-review-form'
+
+ export function WeeklyReviewList() {
+   const weeklyReviewsQuery = useQuery({
+diff --git a/src/hooks/useExercises.ts b/src/hooks/useExercises.ts
+index 5f0ca5d..ac5f7ef 100644
+--- a/src/hooks/useExercises.ts
++++ b/src/hooks/useExercises.ts
+@@ -1,7 +1,7 @@
+ import { useEffect, useMemo, useState } from 'react'
+ import { useQuery, useQueryClient } from '@tanstack/react-query'
+-import { tauri } from '@/lib/tauri'
+ import type { Exercise } from '@/types'
++import { tauri } from '@/lib/tauri'
+
+ const EXERCISES_KEY = ['exercises-search']
+
+@@ -38,7 +38,7 @@ export function useExercises(query: string) {
+   }, [debounced, queryClient])
+
+   return {
+-    data: exercisesQuery.data ?? ([] as Exercise[]),
++    data: exercisesQuery.data ?? ([] as Array<Exercise>),
+     isLoading: exercisesQuery.isFetching,
+   }
+ }
+diff --git a/src/hooks/useIntelligence.ts b/src/hooks/useIntelligence.ts
+index e150a68..fc5bf5b 100644
+--- a/src/hooks/useIntelligence.ts
++++ b/src/hooks/useIntelligence.ts
+@@ -116,7 +116,7 @@ export function useBigThree() {
+
+   // Set Big 3 goals
+   const setGoals = useMutation({
+-    mutationFn: (goals: BigThreeInput[]) => tauri.setBigThree(goals),
++    mutationFn: (goals: Array<BigThreeInput>) => tauri.setBigThree(goals),
+     onSuccess: () => {
+       queryClient.invalidateQueries({ queryKey: BIG_THREE_KEY })
+     },
+diff --git a/src/hooks/useTimer.ts b/src/hooks/useTimer.ts
+index 3f0fe9d..94c2713 100644
+--- a/src/hooks/useTimer.ts
++++ b/src/hooks/useTimer.ts
+@@ -1,10 +1,12 @@
+-import { useState, useEffect, useCallback, useRef } from 'react'
++import { useCallback, useEffect, useRef, useState } from 'react'
++import type {
++  PomodoroTimerMode,
++  PomodoroTimerState,
++} from '@/lib/pomodoroPersistence'
+ import {
++  clearPomodoroRuntime,
+   loadPomodoroState,
+   savePomodoroState,
+-  clearPomodoroRuntime,
+-  type PomodoroTimerMode,
+-  type PomodoroTimerState,
+ } from '@/lib/pomodoroPersistence'
+
+ type TimerState = PomodoroTimerState
+@@ -105,7 +107,7 @@ export function useTimer({
+   }, [])
+
+   const applyPhaseTransition = useCallback(
+-    async (completedMode: TimerMode) => {
++    (completedMode: TimerMode) => {
+       if (completingRef.current) return
+       completingRef.current = true
+       try {
+diff --git a/src/hooks/useWorkouts.ts b/src/hooks/useWorkouts.ts
+index 03b326f..8d5c021 100644
+--- a/src/hooks/useWorkouts.ts
++++ b/src/hooks/useWorkouts.ts
+@@ -110,7 +110,7 @@ export function useWorkoutTemplates() {
+       exercises,
+     }: {
+       name: string
+-      exercises: Partial<WorkoutTemplateExercise>[]
++      exercises: Array<Partial<WorkoutTemplateExercise>>
+     }) => tauri.createWorkoutTemplate(name, exercises),
+     onSuccess: () => queryClient.invalidateQueries({ queryKey: TEMPLATES_KEY }),
+   })
+@@ -123,7 +123,7 @@ export function useWorkoutTemplates() {
+     }: {
+       id: number
+       name: string
+-      exercises: Partial<WorkoutTemplateExercise>[]
++      exercises: Array<Partial<WorkoutTemplateExercise>>
+     }) => tauri.updateWorkoutTemplate(id, name, exercises),
+     onSuccess: () => queryClient.invalidateQueries({ queryKey: TEMPLATES_KEY }),
+   })
+diff --git a/src/lib/exercises.ts b/src/lib/exercises.ts
+index c5ee59a..386bc76 100644
+--- a/src/lib/exercises.ts
++++ b/src/lib/exercises.ts
+@@ -8,7 +8,7 @@ export interface StaticExercise {
+   equipment: string
+ }
+
+-export const EXERCISE_DATABASE: StaticExercise[] = [
++export const EXERCISE_DATABASE: Array<StaticExercise> = [
+   // CHEST
+   {
+     id: 1,
+@@ -731,7 +731,7 @@ export const EXERCISE_DATABASE: StaticExercise[] = [
+ ]
+
+ // Search function with fuzzy matching
+-export function searchExercises(query: string): StaticExercise[] {
++export function searchExercises(query: string): Array<StaticExercise> {
+   if (!query || query.length < 2) return []
+
+   const lowerQuery = query.toLowerCase()
+@@ -746,13 +746,13 @@ export function searchExercises(query: string): StaticExercise[] {
+ }
+
+ // Get exercises by category
+-export function getExercisesByCategory(category: string): StaticExercise[] {
++export function getExercisesByCategory(category: string): Array<StaticExercise> {
+   return EXERCISE_DATABASE.filter(
+     (ex) => ex.category.toLowerCase() === category.toLowerCase(),
+   )
+ }
+
+ // Get all categories
+-export function getCategories(): string[] {
++export function getCategories(): Array<string> {
+   return [...new Set(EXERCISE_DATABASE.map((ex) => ex.category))]
+ }
+diff --git a/src/lib/tauri.ts b/src/lib/tauri.ts
+index 21a1bf5..44353cf 100644
+--- a/src/lib/tauri.ts
++++ b/src/lib/tauri.ts
+@@ -100,24 +100,24 @@ export const tauri = {
+
+   // Get exercises for a specific workout
+   getWorkoutExercises: (workoutId: number) =>
+-    invoke<WorkoutExercise[]>('get_workout_exercises', { workoutId }),
++    invoke<Array<WorkoutExercise>>('get_workout_exercises', { workoutId }),
+
+   // Update workout
+   updateWorkout: (id: number, data: Partial<Workout>) =>
+     invoke<Workout>('update_workout', { id, data }),
+
+   // Workout Templates
+-  getWorkoutTemplates: () => invoke<WorkoutTemplate[]>('get_workout_templates'),
++  getWorkoutTemplates: () => invoke<Array<WorkoutTemplate>>('get_workout_templates'),
+   getTemplateExercises: (templateId: number) =>
+-    invoke<WorkoutTemplateExercise[]>('get_template_exercises', { templateId }),
++    invoke<Array<WorkoutTemplateExercise>>('get_template_exercises', { templateId }),
+   createWorkoutTemplate: (
+     name: string,
+-    exercises: Partial<WorkoutTemplateExercise>[],
++    exercises: Array<Partial<WorkoutTemplateExercise>>,
+   ) => invoke<WorkoutTemplate>('create_workout_template', { name, exercises }),
+   updateWorkoutTemplate: (
+     id: number,
+     name: string,
+-    exercises: Partial<WorkoutTemplateExercise>[],
++    exercises: Array<Partial<WorkoutTemplateExercise>>,
+   ) =>
+     invoke<WorkoutTemplate>('update_workout_template', { id, name, exercises }),
+   deleteWorkoutTemplate: (id: number) =>
+@@ -235,16 +235,16 @@ export const tauri = {
+
+   // Big 3 Goals
+   getBigThree: () => invoke<Array<BigThreeGoal>>('get_big_three'),
+-  setBigThree: (goals: BigThreeInput[]) =>
++  setBigThree: (goals: Array<BigThreeInput>) =>
+     invoke<void>('set_big_three', { goals }),
+   completeBigThree: (goalId: number, satisfaction?: number) =>
+     invoke<void>('complete_big_three', { goalId, satisfaction }),
+
+   // Agent Maintenance
+   runAgentMaintenance: () => invoke<void>('run_agent_maintenance'),
+-  getFeatureNames: () => invoke<string[]>('get_feature_names'),
++  getFeatureNames: () => invoke<Array<string>>('get_feature_names'),
+   searchSimilarExperiences: (query: string, limit?: number) =>
+-    invoke<SimilarExperience[]>('search_similar_experiences', { query, limit }),
++    invoke<Array<SimilarExperience>>('search_similar_experiences', { query, limit }),
+   setRewardWeights: (
+     immediate: number,
+     daily: number,
+@@ -269,10 +269,10 @@ export const tauri = {
+
+   // Physical Analytics
+   getWorkoutHeatmap: (months: number) =>
+-    invoke<WorkoutHeatmapDay[]>('get_workout_heatmap', { months }),
+-  getPersonalRecords: () => invoke<PersonalRecord[]>('get_personal_records'),
++    invoke<Array<WorkoutHeatmapDay>>('get_workout_heatmap', { months }),
++  getPersonalRecords: () => invoke<Array<PersonalRecord>>('get_personal_records'),
+   checkAndUpdatePrs: (workoutId: number) =>
+-    invoke<PersonalRecord[]>('check_and_update_prs', { workoutId }),
+-  getAchievements: () => invoke<Achievement[]>('get_achievements'),
+-  checkAchievements: () => invoke<Achievement[]>('check_achievements'),
++    invoke<Array<PersonalRecord>>('check_and_update_prs', { workoutId }),
++  getAchievements: () => invoke<Array<Achievement>>('get_achievements'),
++  checkAchievements: () => invoke<Array<Achievement>>('check_achievements'),
+ }
+diff --git a/src/lib/time.ts b/src/lib/time.ts
+index c754246..52e7565 100644
+--- a/src/lib/time.ts
++++ b/src/lib/time.ts
+@@ -1,21 +1,21 @@
+ import {
+-  format,
+-  formatDistanceToNow,
+-  startOfWeek,
+-  endOfWeek,
+-  startOfMonth,
+-  endOfMonth,
+-  differenceInDays,
+-  differenceInHours,
+-  isToday,
+-  isTomorrow,
+-  isThisWeek,
+-  isPast,
+   addDays,
+   addWeeks,
++  differenceInDays,
++  differenceInHours,
+   eachDayOfInterval,
++  endOfMonth,
++  endOfWeek,
++  format,
++  formatDistanceToNow,
+   getDay,
++  isPast,
++  isThisWeek,
++  isToday,
++  isTomorrow,
+   parseISO,
++  startOfMonth,
++  startOfWeek,
+ } from 'date-fns'
+
+ // Basic formatting
+@@ -145,7 +145,7 @@ export function getDeadlineInfo(deadline?: string | Date): DeadlineInfo | null {
+ export function getCalendarDays(
+   year: number,
+   month: number,
+-): { date: Date; isCurrentMonth: boolean }[] {
++): Array<{ date: Date; isCurrentMonth: boolean }> {
+   const start = startOfMonth(new Date(year, month))
+   const end = endOfMonth(new Date(year, month))
+
+@@ -164,7 +164,7 @@ export function getCalendarDays(
+
+ // Upcoming dates helper
+ export function getUpcomingDates(
+-  items: { date?: string | Date }[],
++  items: Array<{ date?: string | Date }>,
+   daysAhead: number = 7,
+ ): Map<string, typeof items> {
+   const now = new Date()
+@@ -209,7 +209,7 @@ export function getWeekDays(date: Date = new Date()) {
+ }
+
+ export function getNextNWeeks(n: number = 4) {
+-  const weeks: { start: Date; end: Date }[] = []
++  const weeks: Array<{ start: Date; end: Date }> = []
+   let current = weekStart()
+
+   for (let i = 0; i < n; i++) {
+diff --git a/src/types/index.ts b/src/types/index.ts
+index 66caa46..d69ca0e 100644
+--- a/src/types/index.ts
++++ b/src/types/index.ts
+@@ -35,7 +35,7 @@ export interface CourseAnalytics {
+   total_hours: number
+   sessions_count: number
+   avg_session_duration: number
+-  weekly_history: WeeklyHours[]
++  weekly_history: Array<WeeklyHours>
+ }
+
+ export interface WeeklyHours {
+@@ -109,7 +109,7 @@ export interface WorkoutExercise {
+
+ // Workout with exercises (for display)
+ export interface WorkoutWithExercises extends Workout {
+-  exercises: WorkoutExercise[]
++  exercises: Array<WorkoutExercise>
+ }
+
+ // Template types
+@@ -133,7 +133,7 @@ export interface WorkoutTemplateExercise {
+ }
+
+ export interface WorkoutTemplateWithExercises extends WorkoutTemplate {
+-  exercises: WorkoutTemplateExercise[]
++  exercises: Array<WorkoutTemplateExercise>
+ }
+
+ export interface Exercise {
+@@ -205,9 +205,9 @@ export interface AgentRecommendation {
+   uncertainty: number
+   ucb_score: number
+   explanation: string
+-  top_features: FeatureContribution[]
+-  similar_experiences: PastExperience[]
+-  alternatives: AlternativeAction[]
++  top_features: Array<FeatureContribution>
++  similar_experiences: Array<PastExperience>
++  alternatives: Array<AlternativeAction>
+   confidence_level: 'low' | 'medium' | 'high'
+   recommendation_id?: number
+ }
+@@ -288,11 +288,11 @@ export interface DetailedStats {
+   study_hours_week: number
+   study_target_week: number
+   study_percent: number
+-  study_breakdown: CourseProgress[]
++  study_breakdown: Array<CourseProgress>
+   practice_hours_week: number
+   practice_target_week: number
+   practice_percent: number
+-  practice_breakdown: SkillProgress[]
++  practice_breakdown: Array<SkillProgress>
+   workouts_week: number
+   workout_target_week: number
+   workout_percent: number
