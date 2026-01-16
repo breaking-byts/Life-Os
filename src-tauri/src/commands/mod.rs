@@ -1,4 +1,5 @@
 pub mod courses;
+pub mod course_meetings;
 pub mod assignments;
 pub mod sessions;
 pub mod skills;

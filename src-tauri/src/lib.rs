@@ -8,6 +8,7 @@ mod commands;
 mod agent;
 mod ml;
 mod services;
+mod utils;
 
 use db::connection::establish_pool;
 use db::migrations::run_migrations;
@@ -55,6 +56,10 @@ pub fn run() {
       commands::exams::update_exam,
       commands::exams::delete_exam,
       commands::exams::get_upcoming_exams,
+      commands::course_meetings::create_course_meeting,
+      commands::course_meetings::get_course_meetings,
+      commands::course_meetings::update_course_meeting,
+      commands::course_meetings::delete_course_meeting,
       commands::assignments::create_assignment,
       commands::assignments::get_assignments,
       commands::assignments::update_assignment,

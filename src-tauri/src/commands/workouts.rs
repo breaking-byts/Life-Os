@@ -52,11 +52,16 @@ pub async fn get_workout(state: State<'_, DbState>, id: i64) -> Result<Workout, 
 #[tauri::command]
 pub async fn delete_workout(state: State<'_, DbState>, id: i64) -> Result<bool, String> {
     let pool = &state.0;
-    sqlx::query("DELETE FROM workouts WHERE id = ?")
+    let result = sqlx::query("DELETE FROM workouts WHERE id = ?")
         .bind(id)
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
+
+    if result.rows_affected() == 0 {
+        return Err("Workout not found".to_string());
+    }
+
     Ok(true)
 }
 

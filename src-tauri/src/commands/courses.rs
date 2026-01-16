@@ -181,7 +181,7 @@ pub async fn update_course(state: State<'_, DbState>, id: i64, data: CourseInput
 #[tauri::command]
 pub async fn delete_course(state: State<'_, DbState>, id: i64) -> Result<bool, String> {
     let pool = &state.0;
-    sqlx::query("DELETE FROM courses WHERE id = ?")
+    let result = sqlx::query("DELETE FROM courses WHERE id = ?")
         .bind(id)
         .execute(pool)
         .await
@@ -189,6 +189,11 @@ pub async fn delete_course(state: State<'_, DbState>, id: i64) -> Result<bool, S
             log::error!("Failed to delete course {}: {}", id, e);
             "Failed to delete course".to_string()
         })?;
+
+    if result.rows_affected() == 0 {
+        return Err("Course not found".to_string());
+    }
+
     log::info!("Course deleted: id={}", id);
     Ok(true)
 }
