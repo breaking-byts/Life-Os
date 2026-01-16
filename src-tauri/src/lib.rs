@@ -80,6 +80,8 @@ pub fn run() {
       commands::week_plan_blocks::delete_week_plan_block,
       commands::week_plan_blocks::clear_suggested_blocks,
       commands::week_plan_blocks::bulk_create_plan_blocks,
+      // Calendar Aggregation
+      commands::calendar::get_calendar_items,
       commands::assignments::create_assignment,
       commands::assignments::get_assignments,
       commands::assignments::update_assignment,
