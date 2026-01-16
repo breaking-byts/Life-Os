@@ -1,5 +1,8 @@
 pub mod courses;
 pub mod course_meetings;
+pub mod calendar_events;
+pub mod weekly_tasks;
+pub mod week_plan_blocks;
 pub mod assignments;
 pub mod sessions;
 pub mod skills;
