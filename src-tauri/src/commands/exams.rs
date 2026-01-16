@@ -138,7 +138,7 @@ pub async fn update_exam(state: State<'_, DbState>, id: i64, data: ExamInput) ->
 pub async fn delete_exam(state: State<'_, DbState>, id: i64) -> Result<bool, String> {
     let pool = &state.0;
     
-    sqlx::query("DELETE FROM exams WHERE id = ?")
+    let result = sqlx::query("DELETE FROM exams WHERE id = ?")
         .bind(id)
         .execute(pool)
         .await
@@ -146,7 +146,11 @@ pub async fn delete_exam(state: State<'_, DbState>, id: i64) -> Result<bool, Str
             log::error!("Failed to delete exam {}: {}", id, e);
             "Failed to delete exam".to_string()
         })?;
-    
+
+    if result.rows_affected() == 0 {
+        return Err("Exam not found".to_string());
+    }
+
     log::info!("Exam deleted: id={}", id);
     Ok(true)
 }

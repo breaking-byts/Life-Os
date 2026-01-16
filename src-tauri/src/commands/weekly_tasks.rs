@@ -182,7 +182,7 @@ pub async fn delete_weekly_task(
 ) -> Result<bool, String> {
     let pool = &state.0;
 
-    sqlx::query("DELETE FROM weekly_tasks WHERE id = ?")
+    let result = sqlx::query("DELETE FROM weekly_tasks WHERE id = ?")
         .bind(id)
         .execute(pool)
         .await
@@ -190,6 +190,10 @@ pub async fn delete_weekly_task(
             log::error!("Failed to delete weekly task {}: {}", id, e);
             "Failed to delete weekly task".to_string()
         })?;
+
+    if result.rows_affected() == 0 {
+        return Err("Weekly task not found".to_string());
+    }
 
     Ok(true)
 }

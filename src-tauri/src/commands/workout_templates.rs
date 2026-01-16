@@ -131,10 +131,15 @@ pub async fn update_workout_template(
 #[tauri::command]
 pub async fn delete_workout_template(state: State<'_, DbState>, id: i64) -> Result<bool, String> {
     let pool = &state.0;
-    sqlx::query("DELETE FROM workout_templates WHERE id = ?")
+    let result = sqlx::query("DELETE FROM workout_templates WHERE id = ?")
         .bind(id)
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
+
+    if result.rows_affected() == 0 {
+        return Err("Workout template not found".to_string());
+    }
+
     Ok(true)
 }

@@ -8,6 +8,7 @@ mod commands;
 mod agent;
 mod ml;
 mod services;
+mod utils;
 
 use db::connection::establish_pool;
 use db::migrations::run_migrations;
