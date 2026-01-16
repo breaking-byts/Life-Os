@@ -1,5 +1,5 @@
 use tauri::State;
-use crate::{DbState, models::course_meeting::CourseMeeting};
+use crate::{DbState, models::course_meeting::CourseMeeting, utils::is_valid_time};
 
 #[derive(Debug, serde::Deserialize)]
 pub struct CourseMeetingInput {
@@ -136,7 +136,7 @@ pub async fn delete_course_meeting(
 ) -> Result<bool, String> {
     let pool = &state.0;
 
-    sqlx::query("DELETE FROM course_meetings WHERE id = ?")
+    let result = sqlx::query("DELETE FROM course_meetings WHERE id = ?")
         .bind(id)
         .execute(pool)
         .await
@@ -145,25 +145,10 @@ pub async fn delete_course_meeting(
             "Failed to delete course meeting".to_string()
         })?;
 
+    if result.rows_affected() == 0 {
+        return Err("Course meeting not found".to_string());
+    }
+
     Ok(true)
 }
 
-fn is_valid_time(time: &str) -> bool {
-    if time.len() != 5 {
-        return false;
-    }
-    let parts: Vec<&str> = time.split(':').collect();
-    if parts.len() != 2 {
-        return false;
-    }
-    let hour: u8 = match parts[0].parse() {
-        Ok(h) if h < 24 => h,
-        _ => return false,
-    };
-    let minute: u8 = match parts[1].parse() {
-        Ok(m) if m < 60 => m,
-        _ => return false,
-    };
-    let _ = (hour, minute); // Suppress unused variable warnings
-    true
-}

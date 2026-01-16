@@ -213,7 +213,7 @@ pub async fn delete_week_plan_block(
 ) -> Result<bool, String> {
     let pool = &state.0;
 
-    sqlx::query("DELETE FROM week_plan_blocks WHERE id = ?")
+    let result = sqlx::query("DELETE FROM week_plan_blocks WHERE id = ?")
         .bind(id)
         .execute(pool)
         .await
@@ -221,6 +221,10 @@ pub async fn delete_week_plan_block(
             log::error!("Failed to delete week plan block {}: {}", id, e);
             "Failed to delete week plan block".to_string()
         })?;
+
+    if result.rows_affected() == 0 {
+        return Err("Week plan block not found".to_string());
+    }
 
     Ok(true)
 }
@@ -259,36 +263,50 @@ pub async fn bulk_create_plan_blocks(
         }
     }
 
-    let mut created_blocks = Vec::with_capacity(blocks.len());
+    if blocks.is_empty() {
+        return Ok(Vec::new());
+    }
 
-    for data in blocks {
+    let mut transaction = pool.begin().await.map_err(|e| {
+        log::error!("Failed to start transaction for bulk create week plan blocks: {}", e);
+        "Failed to bulk create week plan blocks".to_string()
+    })?;
+
+    let mut qb = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+        "INSERT INTO week_plan_blocks (user_id, week_start_date, start_at, end_at, block_type, course_id, weekly_task_id, title, status, rationale_json) ",
+    );
+
+    qb.push_values(blocks.iter(), |mut b, data| {
         let user_id = data.user_id.unwrap_or(1);
-        let status = data.status.unwrap_or_else(|| "suggested".to_string());
+        let status = data.status.clone().unwrap_or_else(|| "suggested".to_string());
 
-        let rec = sqlx::query_as::<_, WeekPlanBlock>(
-            r#"INSERT INTO week_plan_blocks (user_id, week_start_date, start_at, end_at, block_type, course_id, weekly_task_id, title, status, rationale_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               RETURNING *"#
-        )
-        .bind(user_id)
-        .bind(&data.week_start_date)
-        .bind(&data.start_at)
-        .bind(&data.end_at)
-        .bind(&data.block_type)
-        .bind(data.course_id)
-        .bind(data.weekly_task_id)
-        .bind(&data.title)
-        .bind(&status)
-        .bind(&data.rationale_json)
-        .fetch_one(pool)
+        b.push_bind(user_id)
+            .push_bind(&data.week_start_date)
+            .push_bind(&data.start_at)
+            .push_bind(&data.end_at)
+            .push_bind(&data.block_type)
+            .push_bind(data.course_id)
+            .push_bind(data.weekly_task_id)
+            .push_bind(&data.title)
+            .push_bind(status)
+            .push_bind(&data.rationale_json);
+    });
+
+    qb.push(" RETURNING *");
+
+    let created_blocks = qb
+        .build_query_as::<WeekPlanBlock>()
+        .fetch_all(&mut *transaction)
         .await
         .map_err(|e| {
-            log::error!("Failed to bulk create week plan block: {}", e);
+            log::error!("Failed to bulk create week plan blocks: {}", e);
             "Failed to bulk create week plan blocks".to_string()
         })?;
 
-        created_blocks.push(rec);
-    }
+    transaction.commit().await.map_err(|e| {
+        log::error!("Failed to commit bulk create week plan blocks: {}", e);
+        "Failed to bulk create week plan blocks".to_string()
+    })?;
 
     Ok(created_blocks)
 }

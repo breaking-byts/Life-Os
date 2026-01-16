@@ -1,5 +1,5 @@
 use tauri::State;
-use crate::{DbState, models::calendar_event::CalendarEvent};
+use crate::{DbState, models::calendar_event::CalendarEvent, utils::is_valid_time};
 
 #[derive(Debug, serde::Deserialize)]
 pub struct CalendarEventInput {
@@ -213,7 +213,7 @@ pub async fn delete_calendar_event(
 ) -> Result<bool, String> {
     let pool = &state.0;
 
-    sqlx::query("DELETE FROM calendar_events WHERE id = ?")
+    let result = sqlx::query("DELETE FROM calendar_events WHERE id = ?")
         .bind(id)
         .execute(pool)
         .await
@@ -222,25 +222,10 @@ pub async fn delete_calendar_event(
             "Failed to delete calendar event".to_string()
         })?;
 
+    if result.rows_affected() == 0 {
+        return Err("Calendar event not found".to_string());
+    }
+
     Ok(true)
 }
 
-fn is_valid_time(time: &str) -> bool {
-    if time.len() != 5 {
-        return false;
-    }
-    let parts: Vec<&str> = time.split(':').collect();
-    if parts.len() != 2 {
-        return false;
-    }
-    let hour: u8 = match parts[0].parse() {
-        Ok(h) if h < 24 => h,
-        _ => return false,
-    };
-    let minute: u8 = match parts[1].parse() {
-        Ok(m) if m < 60 => m,
-        _ => return false,
-    };
-    let _ = (hour, minute);
-    true
-}
