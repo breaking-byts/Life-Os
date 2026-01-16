@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { tauri } from '@/lib/tauri'
 import type { Exercise } from '@/types'
+import { tauri } from '@/lib/tauri'
 
 const EXERCISES_KEY = ['exercises-search']
 
@@ -38,7 +38,7 @@ export function useExercises(query: string) {
   }, [debounced, queryClient])
 
   return {
-    data: exercisesQuery.data ?? ([] as Exercise[]),
+    data: exercisesQuery.data ?? ([] as Array<Exercise>),
     isLoading: exercisesQuery.isFetching,
   }
 }

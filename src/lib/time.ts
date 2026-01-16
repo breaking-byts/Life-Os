@@ -1,21 +1,21 @@
 import {
-  format,
-  formatDistanceToNow,
-  startOfWeek,
-  endOfWeek,
-  startOfMonth,
-  endOfMonth,
-  differenceInDays,
-  differenceInHours,
-  isToday,
-  isTomorrow,
-  isThisWeek,
-  isPast,
   addDays,
   addWeeks,
+  differenceInDays,
+  differenceInHours,
   eachDayOfInterval,
+  endOfMonth,
+  endOfWeek,
+  format,
+  formatDistanceToNow,
   getDay,
+  isPast,
+  isThisWeek,
+  isToday,
+  isTomorrow,
   parseISO,
+  startOfMonth,
+  startOfWeek,
 } from 'date-fns'
 
 // Basic formatting
@@ -145,7 +145,7 @@ export function getDeadlineInfo(deadline?: string | Date): DeadlineInfo | null {
 export function getCalendarDays(
   year: number,
   month: number,
-): { date: Date; isCurrentMonth: boolean }[] {
+): Array<{ date: Date; isCurrentMonth: boolean }> {
   const start = startOfMonth(new Date(year, month))
   const end = endOfMonth(new Date(year, month))
 
@@ -164,7 +164,7 @@ export function getCalendarDays(
 
 // Upcoming dates helper
 export function getUpcomingDates(
-  items: { date?: string | Date }[],
+  items: Array<{ date?: string | Date }>,
   daysAhead: number = 7,
 ): Map<string, typeof items> {
   const now = new Date()
@@ -209,7 +209,7 @@ export function getWeekDays(date: Date = new Date()) {
 }
 
 export function getNextNWeeks(n: number = 4) {
-  const weeks: { start: Date; end: Date }[] = []
+  const weeks: Array<{ start: Date; end: Date }> = []
   let current = weekStart()
 
   for (let i = 0; i < n; i++) {

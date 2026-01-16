@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
-import { PlusIcon, Pencil } from 'lucide-react'
-import { useCourses } from '@/hooks/useCourses'
+import { useEffect, useState } from 'react'
+import { Pencil, PlusIcon } from 'lucide-react'
 import type { Course } from '@/types'
+import { useCourses } from '@/hooks/useCourses'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -22,8 +22,14 @@ interface CourseFormProps {
 }
 
 const COLORS = [
-  '#3b82f6', '#ef4444', '#10b981', '#f59e0b',
-  '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16',
+  '#3b82f6',
+  '#ef4444',
+  '#10b981',
+  '#f59e0b',
+  '#8b5cf6',
+  '#ec4899',
+  '#06b6d4',
+  '#84cc16',
 ]
 
 export function CourseForm({ course, trigger }: CourseFormProps) {
@@ -63,7 +69,7 @@ export function CourseForm({ course, trigger }: CourseFormProps) {
       target_weekly_hours: parseFloat(targetHours) || 6,
     }
 
-    if (isEditing && course) {
+    if (isEditing) {
       await updateCourse.mutateAsync({ id: course.id, data })
     } else {
       await createCourse.mutateAsync(data)
@@ -86,9 +92,13 @@ export function CourseForm({ course, trigger }: CourseFormProps) {
       <DialogContent className="sm:max-w-md">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>{isEditing ? 'Edit Course' : 'New Course'}</DialogTitle>
+            <DialogTitle>
+              {isEditing ? 'Edit Course' : 'New Course'}
+            </DialogTitle>
             <DialogDescription>
-              {isEditing ? 'Update course details.' : 'Add a new course to track.'}
+              {isEditing
+                ? 'Update course details.'
+                : 'Add a new course to track.'}
             </DialogDescription>
           </DialogHeader>
 

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 
+import type { AgentRecommendation } from '@/types'
 import { useIntelligence } from '@/hooks/useIntelligence'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -22,7 +23,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import type { AgentRecommendation } from '@/types'
 
 function getConfidenceColor(level: string) {
   switch (level) {

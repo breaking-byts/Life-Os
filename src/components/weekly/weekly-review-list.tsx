@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
+import { WeeklyReviewForm } from './weekly-review-form'
 import { tauri } from '@/lib/tauri'
 import { formatDate } from '@/lib/time'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { WeeklyReviewForm } from './weekly-review-form'
 
 export function WeeklyReviewList() {
   const weeklyReviewsQuery = useQuery({

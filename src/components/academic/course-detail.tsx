@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useParams, Link, useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
   AlertCircle,
   ArrowLeft,
@@ -12,11 +12,13 @@ import {
   MapPin,
   Play,
   Target,
-  TrendingUp,
   Trash2Icon,
+  TrendingUp,
 } from 'lucide-react'
+import { AssignmentForm, EditAssignmentButton } from './assignment-form'
+import { EditExamButton, ExamForm } from './exam-form'
 import { useAssignments } from '@/hooks/useAssignments'
-import { useCourses, useCourseAnalytics } from '@/hooks/useCourses'
+import { useCourseAnalytics, useCourses } from '@/hooks/useCourses'
 import { useExams } from '@/hooks/useExams'
 import {
   formatDate,
@@ -31,8 +33,6 @@ import { Calendar } from '@/components/ui/calendar'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { AssignmentForm, EditAssignmentButton } from './assignment-form'
-import { ExamForm, EditExamButton } from './exam-form'
 
 export function CourseDetail() {
   const { courseId } = useParams({ from: '/academic_/$courseId' })
@@ -61,7 +61,7 @@ export function CourseDetail() {
 
   // Get dates with events for calendar
   const eventDates = useMemo(() => {
-    const dates: Date[] = []
+    const dates: Array<Date> = []
     for (const a of assignments) {
       if (a.due_date) dates.push(new Date(a.due_date))
     }

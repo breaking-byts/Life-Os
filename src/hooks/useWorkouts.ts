@@ -110,7 +110,7 @@ export function useWorkoutTemplates() {
       exercises,
     }: {
       name: string
-      exercises: Partial<WorkoutTemplateExercise>[]
+      exercises: Array<Partial<WorkoutTemplateExercise>>
     }) => tauri.createWorkoutTemplate(name, exercises),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: TEMPLATES_KEY }),
   })
@@ -123,7 +123,7 @@ export function useWorkoutTemplates() {
     }: {
       id: number
       name: string
-      exercises: Partial<WorkoutTemplateExercise>[]
+      exercises: Array<Partial<WorkoutTemplateExercise>>
     }) => tauri.updateWorkoutTemplate(id, name, exercises),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: TEMPLATES_KEY }),
   })

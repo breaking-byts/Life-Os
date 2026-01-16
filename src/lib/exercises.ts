@@ -8,7 +8,7 @@ export interface StaticExercise {
   equipment: string
 }
 
-export const EXERCISE_DATABASE: StaticExercise[] = [
+export const EXERCISE_DATABASE: Array<StaticExercise> = [
   // CHEST
   {
     id: 1,
@@ -731,7 +731,7 @@ export const EXERCISE_DATABASE: StaticExercise[] = [
 ]
 
 // Search function with fuzzy matching
-export function searchExercises(query: string): StaticExercise[] {
+export function searchExercises(query: string): Array<StaticExercise> {
   if (!query || query.length < 2) return []
 
   const lowerQuery = query.toLowerCase()
@@ -746,13 +746,13 @@ export function searchExercises(query: string): StaticExercise[] {
 }
 
 // Get exercises by category
-export function getExercisesByCategory(category: string): StaticExercise[] {
+export function getExercisesByCategory(category: string): Array<StaticExercise> {
   return EXERCISE_DATABASE.filter(
     (ex) => ex.category.toLowerCase() === category.toLowerCase(),
   )
 }
 
 // Get all categories
-export function getCategories(): string[] {
+export function getCategories(): Array<string> {
   return [...new Set(EXERCISE_DATABASE.map((ex) => ex.category))]
 }

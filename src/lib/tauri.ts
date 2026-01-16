@@ -100,24 +100,24 @@ export const tauri = {
 
   // Get exercises for a specific workout
   getWorkoutExercises: (workoutId: number) =>
-    invoke<WorkoutExercise[]>('get_workout_exercises', { workoutId }),
+    invoke<Array<WorkoutExercise>>('get_workout_exercises', { workoutId }),
 
   // Update workout
   updateWorkout: (id: number, data: Partial<Workout>) =>
     invoke<Workout>('update_workout', { id, data }),
 
   // Workout Templates
-  getWorkoutTemplates: () => invoke<WorkoutTemplate[]>('get_workout_templates'),
+  getWorkoutTemplates: () => invoke<Array<WorkoutTemplate>>('get_workout_templates'),
   getTemplateExercises: (templateId: number) =>
-    invoke<WorkoutTemplateExercise[]>('get_template_exercises', { templateId }),
+    invoke<Array<WorkoutTemplateExercise>>('get_template_exercises', { templateId }),
   createWorkoutTemplate: (
     name: string,
-    exercises: Partial<WorkoutTemplateExercise>[],
+    exercises: Array<Partial<WorkoutTemplateExercise>>,
   ) => invoke<WorkoutTemplate>('create_workout_template', { name, exercises }),
   updateWorkoutTemplate: (
     id: number,
     name: string,
-    exercises: Partial<WorkoutTemplateExercise>[],
+    exercises: Array<Partial<WorkoutTemplateExercise>>,
   ) =>
     invoke<WorkoutTemplate>('update_workout_template', { id, name, exercises }),
   deleteWorkoutTemplate: (id: number) =>
@@ -235,16 +235,16 @@ export const tauri = {
 
   // Big 3 Goals
   getBigThree: () => invoke<Array<BigThreeGoal>>('get_big_three'),
-  setBigThree: (goals: BigThreeInput[]) =>
+  setBigThree: (goals: Array<BigThreeInput>) =>
     invoke<void>('set_big_three', { goals }),
   completeBigThree: (goalId: number, satisfaction?: number) =>
     invoke<void>('complete_big_three', { goalId, satisfaction }),
 
   // Agent Maintenance
   runAgentMaintenance: () => invoke<void>('run_agent_maintenance'),
-  getFeatureNames: () => invoke<string[]>('get_feature_names'),
+  getFeatureNames: () => invoke<Array<string>>('get_feature_names'),
   searchSimilarExperiences: (query: string, limit?: number) =>
-    invoke<SimilarExperience[]>('search_similar_experiences', { query, limit }),
+    invoke<Array<SimilarExperience>>('search_similar_experiences', { query, limit }),
   setRewardWeights: (
     immediate: number,
     daily: number,
@@ -269,10 +269,10 @@ export const tauri = {
 
   // Physical Analytics
   getWorkoutHeatmap: (months: number) =>
-    invoke<WorkoutHeatmapDay[]>('get_workout_heatmap', { months }),
-  getPersonalRecords: () => invoke<PersonalRecord[]>('get_personal_records'),
+    invoke<Array<WorkoutHeatmapDay>>('get_workout_heatmap', { months }),
+  getPersonalRecords: () => invoke<Array<PersonalRecord>>('get_personal_records'),
   checkAndUpdatePrs: (workoutId: number) =>
-    invoke<PersonalRecord[]>('check_and_update_prs', { workoutId }),
-  getAchievements: () => invoke<Achievement[]>('get_achievements'),
-  checkAchievements: () => invoke<Achievement[]>('check_achievements'),
+    invoke<Array<PersonalRecord>>('check_and_update_prs', { workoutId }),
+  getAchievements: () => invoke<Array<Achievement>>('get_achievements'),
+  checkAchievements: () => invoke<Array<Achievement>>('check_achievements'),
 }

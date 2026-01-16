@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
-import { PlusIcon, Pencil } from 'lucide-react'
-import { useExams } from '@/hooks/useExams'
+import { useEffect, useState } from 'react'
+import { Pencil, PlusIcon } from 'lucide-react'
 import type { Exam } from '@/types'
+import { useExams } from '@/hooks/useExams'
 import { formatDate } from '@/lib/time'
 
 import { Button } from '@/components/ui/button'
@@ -81,7 +81,7 @@ export function ExamForm({ courseId, exam, trigger }: ExamFormProps) {
       notes: notes || undefined,
     }
 
-    if (isEditing && exam) {
+    if (isEditing) {
       await updateExam.mutateAsync({ id: exam.id, data })
     } else {
       await createExam.mutateAsync(data)

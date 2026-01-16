@@ -1,9 +1,9 @@
+import { CheckinForm } from './checkin-form'
 import { useCheckIn } from '@/hooks/useCheckIn'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { formatDate } from '@/lib/time'
-import { CheckinForm } from './checkin-form'
 
 const todayTasks = [
   { title: 'Deep work block', detail: '90 min on priority course' },
