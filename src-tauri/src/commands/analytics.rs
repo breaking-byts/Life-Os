@@ -1043,3 +1043,295 @@ async fn get_consecutive_days(pool: &sqlx::Pool<sqlx::Sqlite>, table: &str, date
         .await
         .unwrap_or(0)
 }
+
+// ============================================================================
+// UNIT TESTS - TDD Compliant
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // =========================================================================
+    // StatsSummary Tests
+    // =========================================================================
+
+    #[test]
+    fn test_stats_summary_serialization() {
+        let stats = StatsSummary {
+            study_hours_week: 10.5,
+            practice_hours_week: 5.25,
+            workouts_week: 3,
+            active_streaks: 2,
+        };
+        
+        let json = serde_json::to_string(&stats).unwrap();
+        assert!(json.contains("\"study_hours_week\":10.5"));
+        assert!(json.contains("\"workouts_week\":3"));
+    }
+
+    #[test]
+    fn test_minutes_to_hours_conversion() {
+        let minutes: i64 = 150;
+        let hours = minutes as f64 / 60.0;
+        assert_eq!(hours, 2.5);
+    }
+
+    // =========================================================================
+    // Streaks Tests
+    // =========================================================================
+
+    #[test]
+    fn test_streaks_serialization() {
+        let streaks = Streaks {
+            study_streak: 5,
+            workout_streak: 3,
+            practice_streak: 7,
+            checkin_streak: 10,
+        };
+        
+        let json = serde_json::to_string(&streaks).unwrap();
+        assert!(json.contains("\"study_streak\":5"));
+        assert!(json.contains("\"checkin_streak\":10"));
+    }
+
+    // =========================================================================
+    // UserSettings Tests
+    // =========================================================================
+
+    #[test]
+    fn test_user_settings_default_values() {
+        let default_workout_target = 3;
+        let default_skills_target = 5;
+        
+        assert_eq!(default_workout_target, 3);
+        assert_eq!(default_skills_target, 5);
+    }
+
+    #[test]
+    fn test_user_settings_serialization() {
+        let settings = UserSettings {
+            weekly_workout_target: 4,
+            weekly_active_skills_target: 6,
+        };
+        
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains("\"weekly_workout_target\":4"));
+        assert!(json.contains("\"weekly_active_skills_target\":6"));
+    }
+
+    // =========================================================================
+    // Percent Calculation Tests
+    // =========================================================================
+
+    #[test]
+    fn test_percent_calculation_normal() {
+        let hours: f64 = 3.0;
+        let target: f64 = 6.0;
+        let percent = if target > 0.0 {
+            (hours / target * 100.0_f64).min(100.0)
+        } else {
+            0.0
+        };
+        assert_eq!(percent, 50.0);
+    }
+
+    #[test]
+    fn test_percent_calculation_exceeds_target() {
+        let hours: f64 = 8.0;
+        let target: f64 = 6.0;
+        let percent = if target > 0.0 {
+            (hours / target * 100.0_f64).min(100.0)
+        } else {
+            0.0
+        };
+        assert_eq!(percent, 100.0);
+    }
+
+    #[test]
+    fn test_percent_calculation_zero_target() {
+        let hours: f64 = 5.0;
+        let target: f64 = 0.0;
+        let percent = if target > 0.0 {
+            (hours / target * 100.0_f64).min(100.0)
+        } else {
+            0.0
+        };
+        assert_eq!(percent, 0.0);
+    }
+
+    #[test]
+    fn test_workout_percent_with_settings() {
+        let workouts_week: i64 = 2;
+        let workout_target: i64 = 4;
+        let percent = if workout_target > 0 {
+            (workouts_week as f64 / workout_target as f64 * 100.0_f64).min(100.0)
+        } else {
+            0.0
+        };
+        assert_eq!(percent, 50.0);
+    }
+
+    // =========================================================================
+    // WorkoutHeatmapDay Tests
+    // =========================================================================
+
+    #[test]
+    fn test_workout_heatmap_day_serialization() {
+        let day = WorkoutHeatmapDay {
+            date: "2026-01-15".to_string(),
+            count: 2,
+            total_minutes: 90,
+        };
+        
+        let json = serde_json::to_string(&day).unwrap();
+        assert!(json.contains("\"date\":\"2026-01-15\""));
+        assert!(json.contains("\"count\":2"));
+        assert!(json.contains("\"total_minutes\":90"));
+    }
+
+    #[test]
+    fn test_months_to_days_conversion() {
+        let months = 3;
+        let days = months * 30;
+        assert_eq!(days, 90);
+    }
+
+    // =========================================================================
+    // PersonalRecord Tests
+    // =========================================================================
+
+    #[test]
+    fn test_personal_record_serialization() {
+        let pr = PersonalRecord {
+            id: 1,
+            exercise_name: "Bench Press".to_string(),
+            pr_type: "weight".to_string(),
+            value: 185.0,
+            achieved_at: "2026-01-15T10:30:00Z".to_string(),
+            workout_id: Some(42),
+        };
+        
+        let json = serde_json::to_string(&pr).unwrap();
+        assert!(json.contains("\"exercise_name\":\"Bench Press\""));
+        assert!(json.contains("\"value\":185.0"));
+        assert!(json.contains("\"pr_type\":\"weight\""));
+    }
+
+    #[test]
+    fn test_volume_calculation() {
+        let sets: i64 = 4;
+        let reps: i64 = 10;
+        let weight: f64 = 135.0;
+        let volume = sets as f64 * reps as f64 * weight;
+        assert_eq!(volume, 5400.0);
+    }
+
+    // =========================================================================
+    // Achievement Tests
+    // =========================================================================
+
+    #[test]
+    fn test_achievement_serialization() {
+        let achievement = Achievement {
+            id: 1,
+            achievement_type: "workout_milestone".to_string(),
+            title: "Iron Will".to_string(),
+            description: Some("Complete 50 workouts".to_string()),
+            category: Some("workout".to_string()),
+            achieved_at: "2026-01-15T08:00:00Z".to_string(),
+            metadata: Some(r#"{"count":50}"#.to_string()),
+        };
+        
+        let json = serde_json::to_string(&achievement).unwrap();
+        assert!(json.contains("\"title\":\"Iron Will\""));
+        assert!(json.contains("\"achievement_type\":\"workout_milestone\""));
+    }
+
+    // =========================================================================
+    // CourseProgress Tests
+    // =========================================================================
+
+    #[test]
+    fn test_course_progress_serialization() {
+        let progress = CourseProgress {
+            course_id: 1,
+            course_name: "Calculus".to_string(),
+            code: Some("MATH201".to_string()),
+            color: "#3b82f6".to_string(),
+            hours_this_week: 4.5,
+            target_hours: 6.0,
+            percent: 75.0,
+            current_grade: Some(87.5),
+            target_grade: Some(90.0),
+        };
+        
+        let json = serde_json::to_string(&progress).unwrap();
+        assert!(json.contains("\"course_name\":\"Calculus\""));
+        assert!(json.contains("\"percent\":75.0"));
+    }
+
+    // =========================================================================
+    // SkillProgress Tests
+    // =========================================================================
+
+    #[test]
+    fn test_skill_progress_serialization() {
+        let skill = SkillProgress {
+            skill_id: 1,
+            skill_name: "Piano".to_string(),
+            category: Some("Music".to_string()),
+            hours_this_week: 3.0,
+            target_weekly_hours: 5.0,
+            weekly_percent: 60.0,
+            total_hours: 50.0,
+            target_hours: 100.0,
+            mastery_percent: 50.0,
+            current_level: 3,
+        };
+        
+        let json = serde_json::to_string(&skill).unwrap();
+        assert!(json.contains("\"skill_name\":\"Piano\""));
+        assert!(json.contains("\"mastery_percent\":50.0"));
+    }
+
+    #[test]
+    fn test_mastery_percent_calculation() {
+        let total_hours: f64 = 75.0;
+        let target_hours: f64 = 100.0;
+        let mastery_percent = if target_hours > 0.0 {
+            (total_hours / target_hours * 100.0_f64).min(100.0)
+        } else {
+            0.0
+        };
+        assert_eq!(mastery_percent, 75.0);
+    }
+
+    // =========================================================================
+    // DetailedStats Tests
+    // =========================================================================
+
+    #[test]
+    fn test_detailed_stats_partial() {
+        let stats = DetailedStats {
+            study_hours_week: 8.5,
+            study_target_week: 12.0,
+            study_percent: 70.83,
+            study_breakdown: vec![],
+            practice_hours_week: 4.0,
+            practice_target_week: 5.0,
+            practice_percent: 80.0,
+            practice_breakdown: vec![],
+            workouts_week: 2,
+            workout_target_week: 3,
+            workout_percent: 66.67,
+            active_skills_count: 3,
+            skills_target: 5,
+        };
+        
+        let json = serde_json::to_string(&stats).unwrap();
+        assert!(json.contains("\"study_hours_week\":8.5"));
+        assert!(json.contains("\"workout_percent\":66.67"));
+        assert!(json.contains("\"active_skills_count\":3"));
+    }
+}
