@@ -227,108 +227,93 @@ pub struct CourseInput {
 #[tauri::command]
 pub async fn get_courses_with_progress(state: State<'_, DbState>) -> Result<Vec<CourseWithProgress>, String> {
     let pool = &state.0;
-    
-    let courses = sqlx::query_as::<_, Course>("SELECT * FROM courses ORDER BY created_at DESC")
-        .fetch_all(pool)
-        .await
-        .map_err(|e| {
-            log::error!("Failed to fetch courses: {}", e);
-            "Failed to fetch courses".to_string()
-        })?;
-    
-    let mut result: Vec<CourseWithProgress> = Vec::new();
-    
-    for course in courses {
-        // Get hours this week
-        let hours_this_week: f64 = sqlx::query_scalar(
-            r#"
-            SELECT COALESCE(SUM(duration_minutes), 0) / 60.0
+    get_courses_with_progress_inner(pool).await
+}
+
+pub async fn get_courses_with_progress_inner(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<Vec<CourseWithProgress>, String> {
+    #[derive(sqlx::FromRow)]
+    struct CourseWithStats {
+        id: i64,
+        user_id: i64,
+        name: String,
+        code: Option<String>,
+        color: Option<String>,
+        credit_hours: Option<i64>,
+        target_weekly_hours: Option<f64>,
+        is_active: Option<i64>,
+        created_at: Option<String>,
+        current_grade: Option<f64>,
+        target_grade: Option<f64>,
+        // Stats
+        hours_this_week: f64,
+        total_hours: f64,
+        upcoming_assignments: i64,
+        overdue_assignments: i64,
+    }
+
+    let rows = sqlx::query_as::<_, CourseWithStats>(
+        r#"
+        SELECT
+            c.id, c.user_id, c.name, c.code, c.color, c.credit_hours, c.target_weekly_hours, c.is_active, c.created_at, c.current_grade, c.target_grade,
+            COALESCE(s.hours_this_week, 0.0) as hours_this_week,
+            COALESCE(s.total_hours, 0.0) as total_hours,
+            COALESCE(a.upcoming_assignments, 0) as upcoming_assignments,
+            COALESCE(a.overdue_assignments, 0) as overdue_assignments
+        FROM courses c
+        LEFT JOIN (
+            SELECT
+                reference_id,
+                COALESCE(SUM(CASE WHEN started_at >= date('now', 'weekday 0', '-7 days') THEN duration_minutes ELSE 0 END), 0) / 60.0 as hours_this_week,
+                COALESCE(SUM(duration_minutes), 0) / 60.0 as total_hours
             FROM sessions
-            WHERE session_type = 'study'
-              AND reference_type = 'course'
-              AND reference_id = ?
-              AND started_at >= date('now', 'weekday 0', '-7 days')
-            "#
-        )
-        .bind(course.id)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(0.0);
-        
-        // Get total hours
-        let total_hours: f64 = sqlx::query_scalar(
-            r#"
-            SELECT COALESCE(SUM(duration_minutes), 0) / 60.0
-            FROM sessions
-            WHERE session_type = 'study'
-              AND reference_type = 'course'
-              AND reference_id = ?
-            "#
-        )
-        .bind(course.id)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(0.0);
-        
-        // Get upcoming assignments (due in next 7 days)
-        let upcoming_assignments: i64 = sqlx::query_scalar(
-            r#"
-            SELECT COUNT(*)
+            WHERE session_type = 'study' AND reference_type = 'course'
+            GROUP BY reference_id
+        ) s ON c.id = s.reference_id
+        LEFT JOIN (
+            SELECT
+                course_id,
+                COUNT(CASE WHEN is_completed = 0 AND due_date >= datetime('now') AND due_date <= datetime('now', '+7 days') THEN 1 END) as upcoming_assignments,
+                COUNT(CASE WHEN is_completed = 0 AND due_date < datetime('now') THEN 1 END) as overdue_assignments
             FROM assignments
-            WHERE course_id = ?
-              AND is_completed = 0
-              AND due_date IS NOT NULL
-              AND due_date >= datetime('now')
-              AND due_date <= datetime('now', '+7 days')
-            "#
-        )
-        .bind(course.id)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(0);
-        
-        // Get overdue assignments
-        let overdue_assignments: i64 = sqlx::query_scalar(
-            r#"
-            SELECT COUNT(*)
-            FROM assignments
-            WHERE course_id = ?
-              AND is_completed = 0
-              AND due_date IS NOT NULL
-              AND due_date < datetime('now')
-            "#
-        )
-        .bind(course.id)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(0);
-        
-        let target = course.target_weekly_hours.unwrap_or(6.0);
+            GROUP BY course_id
+        ) a ON c.id = a.course_id
+        ORDER BY c.created_at DESC
+        "#
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| {
+        log::error!("Failed to fetch courses with progress: {}", e);
+        "Failed to fetch courses".to_string()
+    })?;
+
+    let result = rows.into_iter().map(|row| {
+        let target = row.target_weekly_hours.unwrap_or(6.0);
         let weekly_percent = if target > 0.0 {
-            (hours_this_week / target * 100.0).min(100.0)
+            (row.hours_this_week / target * 100.0).min(100.0)
         } else {
             0.0
         };
-        
-        result.push(CourseWithProgress {
-            id: course.id,
-            user_id: course.user_id,
-            name: course.name,
-            code: course.code,
-            color: course.color,
-            credit_hours: course.credit_hours,
-            target_weekly_hours: course.target_weekly_hours,
-            is_active: course.is_active,
-            created_at: course.created_at,
-            current_grade: course.current_grade,
-            target_grade: course.target_grade,
-            hours_this_week,
+
+        CourseWithProgress {
+            id: row.id,
+            user_id: row.user_id,
+            name: row.name,
+            code: row.code,
+            color: row.color,
+            credit_hours: row.credit_hours,
+            target_weekly_hours: row.target_weekly_hours,
+            is_active: row.is_active,
+            created_at: row.created_at,
+            current_grade: row.current_grade,
+            target_grade: row.target_grade,
+            hours_this_week: row.hours_this_week,
             weekly_percent,
-            total_hours,
-            upcoming_assignments,
-            overdue_assignments,
-        });
-    }
+            total_hours: row.total_hours,
+            upcoming_assignments: row.upcoming_assignments,
+            overdue_assignments: row.overdue_assignments,
+        }
+    }).collect();
     
     Ok(result)
 }
