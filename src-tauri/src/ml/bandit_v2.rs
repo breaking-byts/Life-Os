@@ -220,6 +220,37 @@ impl Default for LinearBanditParams {
     }
 }
 
+fn parse_bandit_row(
+    id: i64,
+    name: String,
+    category: Option<String>,
+    description: Option<String>,
+    total_pulls: i64,
+    total_reward: f64,
+    is_enabled: bool,
+    theta: Option<Vec<u8>>,
+    precision: Option<Vec<u8>>,
+) -> (BanditAction, LinearBanditParams) {
+    let action = BanditAction {
+        id,
+        name,
+        category: category.unwrap_or_default(),
+        description: description.unwrap_or_default(),
+        total_pulls,
+        total_reward,
+        is_enabled,
+    };
+
+    let params = match (theta, precision) {
+        (Some(t), Some(p)) => {
+            LinearBanditParams::from_bytes(&t, &p).unwrap_or_else(LinearBanditParams::new)
+        }
+        _ => LinearBanditParams::new(),
+    };
+
+    (action, params)
+}
+
 /// Hybrid Contextual Bandit
 pub struct HybridBandit;
 
@@ -355,17 +386,62 @@ impl HybridBandit {
     ) -> Result<Vec<ActionSelection>, String> {
         let beta = beta.unwrap_or(DEFAULT_BETA);
         let features = context.to_feature_vector();
-        let actions = Self::get_actions(pool).await?;
 
-        if actions.is_empty() {
+        // Optimize: Fetch everything in one query to avoid N+1 problem
+        let rows = sqlx::query_as::<
+            _,
+            (
+                i64,
+                String,
+                Option<String>,
+                Option<String>,
+                i64,
+                f64,
+                bool,
+                Option<Vec<u8>>,
+                Option<Vec<u8>>,
+            ),
+        >(
+            r#"
+            SELECT id, action_name, category, description, total_pulls, total_reward, is_enabled, theta, precision_matrix
+            FROM agent_linear_bandit
+            WHERE is_enabled = 1
+            "#,
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        if rows.is_empty() {
             return Ok(vec![]);
         }
 
         let feature_names = RichContext::feature_names();
-        let mut scored_actions: Vec<ActionSelection> = Vec::new();
+        let mut scored_actions: Vec<ActionSelection> = Vec::with_capacity(rows.len());
 
-        for action in actions {
-            let params = Self::load_params(pool, &action.name).await?;
+        for (
+            id,
+            name,
+            category,
+            description,
+            total_pulls,
+            total_reward,
+            is_enabled,
+            theta,
+            precision,
+        ) in rows
+        {
+            let (action, params) = parse_bandit_row(
+                id,
+                name,
+                category,
+                description,
+                total_pulls,
+                total_reward,
+                is_enabled,
+                theta,
+                precision,
+            );
 
             let expected_reward = params.predict(&features) as f32;
             let uncertainty = params.uncertainty(&features) as f32;
@@ -404,9 +480,33 @@ impl HybridBandit {
         context: &RichContext,
     ) -> Result<Option<ActionSelection>, String> {
         let features = context.to_feature_vector();
-        let actions = Self::get_actions(pool).await?;
 
-        if actions.is_empty() {
+        // Optimize: Fetch everything in one query
+        let rows = sqlx::query_as::<
+            _,
+            (
+                i64,
+                String,
+                Option<String>,
+                Option<String>,
+                i64,
+                f64,
+                bool,
+                Option<Vec<u8>>,
+                Option<Vec<u8>>,
+            ),
+        >(
+            r#"
+            SELECT id, action_name, category, description, total_pulls, total_reward, is_enabled, theta, precision_matrix
+            FROM agent_linear_bandit
+            WHERE is_enabled = 1
+            "#,
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        if rows.is_empty() {
             return Ok(None);
         }
 
@@ -414,8 +514,29 @@ impl HybridBandit {
         let mut best: Option<ActionSelection> = None;
         let mut best_sample = f64::NEG_INFINITY;
 
-        for action in actions {
-            let params = Self::load_params(pool, &action.name).await?;
+        for (
+            id,
+            name,
+            category,
+            description,
+            total_pulls,
+            total_reward,
+            is_enabled,
+            theta,
+            precision,
+        ) in rows
+        {
+            let (action, params) = parse_bandit_row(
+                id,
+                name,
+                category,
+                description,
+                total_pulls,
+                total_reward,
+                is_enabled,
+                theta,
+                precision,
+            );
 
             let sample = params.thompson_sample(&features);
             let expected_reward = params.predict(&features) as f32;
@@ -590,5 +711,79 @@ mod tests {
         let orig_pred = params.predict(&features);
         let restored_pred = restored.predict(&features);
         assert!((orig_pred - restored_pred).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod benchmarks {
+    use super::*;
+    use sqlx::{Pool, Sqlite};
+    use sqlx::sqlite::SqlitePoolOptions;
+    use std::time::Instant;
+
+    async fn setup_db() -> Pool<Sqlite> {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS agent_linear_bandit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                action_name TEXT NOT NULL UNIQUE,
+                category TEXT,
+                description TEXT,
+                theta BLOB,
+                precision_matrix BLOB,
+                prior_mean REAL DEFAULT 0.0,
+                prior_precision REAL DEFAULT 1.0,
+                noise_precision REAL DEFAULT 1.0,
+                total_pulls INTEGER DEFAULT 0,
+                total_reward REAL DEFAULT 0.0,
+                avg_reward REAL DEFAULT 0.0,
+                last_pulled TEXT,
+                is_enabled INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+            "#
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        pool
+    }
+
+    #[tokio::test]
+    async fn benchmark_select_top_actions() {
+        let pool = setup_db().await;
+        let params = LinearBanditParams::new();
+        let (theta_bytes, prec_bytes) = params.to_bytes();
+
+        // Insert 100 actions
+        for i in 0..100 {
+            sqlx::query(
+                r#"
+                INSERT INTO agent_linear_bandit (action_name, category, description, theta, precision_matrix)
+                VALUES (?, 'benchmark', 'desc', ?, ?)
+                "#
+            )
+            .bind(format!("action_{}", i))
+            .bind(&theta_bytes)
+            .bind(&prec_bytes)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let context = RichContext::default();
+
+        let start = Instant::now();
+        let _result = HybridBandit::select_top_actions(&pool, &context, 5, None).await.unwrap();
+        let duration = start.elapsed();
+
+        println!("benchmark_select_top_actions took: {:?}", duration);
     }
 }
