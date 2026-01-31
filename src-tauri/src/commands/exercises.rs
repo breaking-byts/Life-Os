@@ -146,29 +146,205 @@ async fn fetch_and_cache_internal(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<usi
     let count = exercises.len();
     log::info!("Fetched {} exercises. Caching...", count);
     
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
-    
-    for ex in exercises {
-        sqlx::query(
-            r#"INSERT OR REPLACE INTO exercises_cache 
-               (wger_id, name, category, muscles, equipment, description, cached_at, source)
-               VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 'wger')"#
-        )
-        .bind(ex.wger_id)
-        .bind(&ex.name)
-        .bind(&ex.category)
-        .bind(&ex.muscles)
-        .bind(&ex.equipment)
-        .bind(&ex.description)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+    bulk_insert_exercises(pool, exercises).await
+}
+
+async fn bulk_insert_exercises(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    exercises: Vec<wger::ExerciseData>,
+) -> Result<usize, String> {
+    if exercises.is_empty() {
+        return Ok(0);
     }
     
-    tx.commit().await.map_err(|e| e.to_string())?;
+    let count = exercises.len();
+    let mut query_builder: sqlx::QueryBuilder<sqlx::Sqlite> = sqlx::QueryBuilder::new(
+        "INSERT INTO exercises_cache (wger_id, name, category, muscles, equipment, description, cached_at, source)"
+    );
+
+    query_builder.push_values(exercises, |mut b, ex| {
+        b.push_bind(ex.wger_id);
+        b.push_bind(ex.name);
+        b.push_bind(ex.category);
+        b.push_bind(ex.muscles);
+        b.push_bind(ex.equipment);
+        b.push_bind(ex.description);
+        b.push("CURRENT_TIMESTAMP");
+        b.push_bind("wger");
+    });
+
+    query_builder.push(
+        " ON CONFLICT(wger_id) DO UPDATE SET
+            name = excluded.name,
+            category = excluded.category,
+            muscles = excluded.muscles,
+            equipment = excluded.equipment,
+            description = excluded.description,
+            cached_at = CURRENT_TIMESTAMP,
+            source = 'wger'"
+    );
+
+    let query = query_builder.build();
+    query.execute(pool).await.map_err(|e| e.to_string())?;
     
     log::info!("Successfully cached {} exercises.", count);
     Ok(count)
 }
 
 
+
+#[cfg(test)]
+mod performance_tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+    use crate::services::wger::ExerciseData;
+    use std::time::Instant;
+
+    // Helper to setup DB
+    async fn setup_db() -> sqlx::Pool<sqlx::Sqlite> {
+        use sqlx::sqlite::SqliteConnectOptions;
+        use std::str::FromStr;
+
+        // Disable FKs to avoid migration issues with missing default user
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .foreign_keys(false);
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("Failed to connect to in-memory DB");
+
+        crate::db::migrations::run_migrations(&pool).await.expect("Failed to run migrations");
+
+        pool
+    }
+
+    fn generate_dummy_exercises(count: usize) -> Vec<ExerciseData> {
+        let mut exercises = Vec::with_capacity(count);
+        for i in 0..count {
+            exercises.push(ExerciseData {
+                wger_id: i as i64,
+                name: format!("Exercise {}", i),
+                category: Some("General".to_string()),
+                muscles: Some("Full Body".to_string()),
+                equipment: Some("Bodyweight".to_string()),
+                description: Some("A dummy exercise".to_string()),
+            });
+        }
+        exercises
+    }
+
+    // Legacy insert loop (exact copy of original logic)
+    async fn legacy_insert_loop(pool: &sqlx::Pool<sqlx::Sqlite>, exercises: &[ExerciseData]) -> Result<(), String> {
+        let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+        for ex in exercises {
+            sqlx::query(
+                r#"INSERT OR REPLACE INTO exercises_cache
+                   (wger_id, name, category, muscles, equipment, description, cached_at, source)
+                   VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 'wger')"#
+            )
+            .bind(ex.wger_id)
+            .bind(&ex.name)
+            .bind(&ex.category)
+            .bind(&ex.muscles)
+            .bind(&ex.equipment)
+            .bind(&ex.description)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+
+        tx.commit().await.map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn benchmark_legacy_insert() {
+        let pool = setup_db().await;
+        let count = 1000;
+        let exercises = generate_dummy_exercises(count);
+
+        let start = Instant::now();
+        legacy_insert_loop(&pool, &exercises).await.expect("Legacy insert failed");
+        let duration = start.elapsed();
+
+        println!("Legacy insert of {} items took: {:?}", count, duration);
+    }
+
+    #[tokio::test]
+    async fn benchmark_bulk_insert() {
+        let pool = setup_db().await;
+        let count = 1000;
+        let exercises = generate_dummy_exercises(count);
+
+        let start = Instant::now();
+        bulk_insert_exercises(&pool, exercises).await.expect("Bulk insert failed");
+        let duration = start.elapsed();
+
+        println!("Bulk insert of {} items took: {:?}", count, duration);
+    }
+
+    #[tokio::test]
+    async fn verify_insert_correctness() {
+        let pool = setup_db().await;
+        let exercises = vec![
+            ExerciseData {
+                wger_id: 1,
+                name: "Test Ex 1".to_string(),
+                category: Some("Cat 1".to_string()),
+                muscles: Some("Muscles 1".to_string()),
+                equipment: Some("Eq 1".to_string()),
+                description: Some("Desc 1".to_string()),
+            },
+            ExerciseData {
+                wger_id: 2,
+                name: "Test Ex 2".to_string(),
+                category: Some("Cat 2".to_string()),
+                muscles: None,
+                equipment: None,
+                description: None,
+            },
+        ];
+
+        bulk_insert_exercises(&pool, exercises).await.expect("Insert failed");
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM exercises_cache")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(count, 2);
+
+        let ex1: ExerciseCache = sqlx::query_as("SELECT * FROM exercises_cache WHERE wger_id = 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(ex1.name, "Test Ex 1");
+        assert_eq!(ex1.source, "wger");
+
+        // Verify Update behavior
+        let updates = vec![
+            ExerciseData {
+                wger_id: 1,
+                name: "Updated Name".to_string(),
+                category: Some("Cat 1".to_string()),
+                muscles: Some("Muscles 1".to_string()),
+                equipment: Some("Eq 1".to_string()),
+                description: Some("Desc 1".to_string()),
+            }
+        ];
+
+        bulk_insert_exercises(&pool, updates).await.expect("Update failed");
+
+        let ex1_updated: ExerciseCache = sqlx::query_as("SELECT * FROM exercises_cache WHERE wger_id = 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(ex1_updated.name, "Updated Name");
+    }
+}
