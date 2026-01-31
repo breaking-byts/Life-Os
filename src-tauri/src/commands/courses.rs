@@ -10,7 +10,7 @@ const MAX_CODE_LENGTH: usize = 50;
 // COURSE ANALYTICS STRUCTS
 // ============================================================================
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
 pub struct CourseWithProgress {
     pub id: i64,
     pub user_id: i64,
@@ -226,111 +226,75 @@ pub struct CourseInput {
 
 #[tauri::command]
 pub async fn get_courses_with_progress(state: State<'_, DbState>) -> Result<Vec<CourseWithProgress>, String> {
-    let pool = &state.0;
-    
-    let courses = sqlx::query_as::<_, Course>("SELECT * FROM courses ORDER BY created_at DESC")
-        .fetch_all(pool)
-        .await
-        .map_err(|e| {
-            log::error!("Failed to fetch courses: {}", e);
-            "Failed to fetch courses".to_string()
-        })?;
-    
-    let mut result: Vec<CourseWithProgress> = Vec::new();
-    
-    for course in courses {
-        // Get hours this week
-        let hours_this_week: f64 = sqlx::query_scalar(
-            r#"
-            SELECT COALESCE(SUM(duration_minutes), 0) / 60.0
+    get_courses_with_progress_inner(&state.0).await
+}
+
+pub async fn get_courses_with_progress_inner(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<Vec<CourseWithProgress>, String> {
+    sqlx::query_as::<_, CourseWithProgress>(
+        r#"
+        SELECT
+            c.id,
+            c.user_id,
+            c.name,
+            c.code,
+            c.color,
+            c.credit_hours,
+            c.target_weekly_hours,
+            c.is_active,
+            c.created_at,
+            c.current_grade,
+            c.target_grade,
+            COALESCE(s_week.hours, 0.0) as hours_this_week,
+            CASE
+                WHEN COALESCE(c.target_weekly_hours, 6.0) > 0 THEN
+                    MIN((COALESCE(s_week.hours, 0.0) / COALESCE(c.target_weekly_hours, 6.0) * 100.0), 100.0)
+                ELSE 0.0
+            END as weekly_percent,
+            COALESCE(s_total.hours, 0.0) as total_hours,
+            COALESCE(a_upcoming.count, 0) as upcoming_assignments,
+            COALESCE(a_overdue.count, 0) as overdue_assignments
+        FROM courses c
+        LEFT JOIN (
+            SELECT reference_id, SUM(duration_minutes) / 60.0 as hours
             FROM sessions
             WHERE session_type = 'study'
               AND reference_type = 'course'
-              AND reference_id = ?
               AND started_at >= date('now', 'weekday 0', '-7 days')
-            "#
-        )
-        .bind(course.id)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(0.0);
-        
-        // Get total hours
-        let total_hours: f64 = sqlx::query_scalar(
-            r#"
-            SELECT COALESCE(SUM(duration_minutes), 0) / 60.0
+            GROUP BY reference_id
+        ) s_week ON c.id = s_week.reference_id
+        LEFT JOIN (
+            SELECT reference_id, SUM(duration_minutes) / 60.0 as hours
             FROM sessions
             WHERE session_type = 'study'
               AND reference_type = 'course'
-              AND reference_id = ?
-            "#
-        )
-        .bind(course.id)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(0.0);
-        
-        // Get upcoming assignments (due in next 7 days)
-        let upcoming_assignments: i64 = sqlx::query_scalar(
-            r#"
-            SELECT COUNT(*)
+            GROUP BY reference_id
+        ) s_total ON c.id = s_total.reference_id
+        LEFT JOIN (
+            SELECT course_id, COUNT(*) as count
             FROM assignments
-            WHERE course_id = ?
-              AND is_completed = 0
+            WHERE is_completed = 0
               AND due_date IS NOT NULL
               AND due_date >= datetime('now')
               AND due_date <= datetime('now', '+7 days')
-            "#
-        )
-        .bind(course.id)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(0);
-        
-        // Get overdue assignments
-        let overdue_assignments: i64 = sqlx::query_scalar(
-            r#"
-            SELECT COUNT(*)
+            GROUP BY course_id
+        ) a_upcoming ON c.id = a_upcoming.course_id
+        LEFT JOIN (
+            SELECT course_id, COUNT(*) as count
             FROM assignments
-            WHERE course_id = ?
-              AND is_completed = 0
+            WHERE is_completed = 0
               AND due_date IS NOT NULL
               AND due_date < datetime('now')
-            "#
-        )
-        .bind(course.id)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(0);
-        
-        let target = course.target_weekly_hours.unwrap_or(6.0);
-        let weekly_percent = if target > 0.0 {
-            (hours_this_week / target * 100.0).min(100.0)
-        } else {
-            0.0
-        };
-        
-        result.push(CourseWithProgress {
-            id: course.id,
-            user_id: course.user_id,
-            name: course.name,
-            code: course.code,
-            color: course.color,
-            credit_hours: course.credit_hours,
-            target_weekly_hours: course.target_weekly_hours,
-            is_active: course.is_active,
-            created_at: course.created_at,
-            current_grade: course.current_grade,
-            target_grade: course.target_grade,
-            hours_this_week,
-            weekly_percent,
-            total_hours,
-            upcoming_assignments,
-            overdue_assignments,
-        });
-    }
-    
-    Ok(result)
+            GROUP BY course_id
+        ) a_overdue ON c.id = a_overdue.course_id
+        ORDER BY c.created_at DESC
+        "#
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| {
+        log::error!("Failed to fetch courses with progress: {}", e);
+        "Failed to fetch courses".to_string()
+    })
 }
 
 #[tauri::command]
@@ -720,5 +684,107 @@ impl Default for CourseInput {
             current_grade: None,
             target_grade: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod benchmarks {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+    use std::time::Instant;
+    use sqlx::Row;
+
+    async fn setup_db() -> sqlx::Pool<sqlx::Sqlite> {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        sqlx::query("CREATE TABLE courses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            name TEXT NOT NULL,
+            code TEXT,
+            color TEXT,
+            credit_hours INTEGER,
+            target_weekly_hours REAL,
+            is_active INTEGER,
+            current_grade REAL,
+            target_grade REAL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )").execute(&pool).await.unwrap();
+
+        sqlx::query("CREATE TABLE sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            session_type TEXT NOT NULL,
+            reference_id INTEGER,
+            reference_type TEXT,
+            started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            ended_at TEXT,
+            duration_minutes INTEGER,
+            notes TEXT
+        )").execute(&pool).await.unwrap();
+
+        sqlx::query("CREATE TABLE assignments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            course_id INTEGER,
+            title TEXT NOT NULL,
+            description TEXT,
+            due_date TEXT,
+            priority TEXT,
+            is_completed INTEGER DEFAULT 0,
+            completed_at TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )").execute(&pool).await.unwrap();
+
+        pool
+    }
+
+    #[tokio::test]
+    async fn benchmark_get_courses_with_progress() {
+        let pool = setup_db().await;
+
+        // Seed Data
+        for i in 0..50 {
+            let row = sqlx::query("INSERT INTO courses (name, target_weekly_hours) VALUES (?, ?) RETURNING id")
+                .bind(format!("Course {}", i))
+                .bind(6.0)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            let course_id: i64 = row.get(0);
+
+            // Insert sessions (some this week, some older)
+            for j in 0..40 {
+                // Mix dates: some in last 7 days, some older
+                let date_mod = if j % 2 == 0 { "0 days" } else { "-10 days" };
+                sqlx::query("INSERT INTO sessions (session_type, reference_type, reference_id, duration_minutes, started_at) VALUES ('study', 'course', ?, ?, date('now', ?))")
+                    .bind(course_id)
+                    .bind(60)
+                    .bind(date_mod)
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            }
+
+            // Insert assignments
+            for j in 0..10 {
+                let due_mod = if j % 2 == 0 { "+3 days" } else { "-3 days" }; // upcoming vs overdue
+                sqlx::query("INSERT INTO assignments (course_id, title, due_date, is_completed) VALUES (?, 'HW', datetime('now', ?), 0)")
+                    .bind(course_id)
+                    .bind(due_mod)
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            }
+        }
+
+        let start = Instant::now();
+        let _result = get_courses_with_progress_inner(&pool).await.unwrap();
+        let duration = start.elapsed();
+
+        println!("Benchmark get_courses_with_progress: {:?}", duration);
     }
 }
