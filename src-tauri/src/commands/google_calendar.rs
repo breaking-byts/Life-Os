@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use base64::Engine as _;
-use chrono::{DateTime, Duration, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use keyring::Entry;
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::Client;
@@ -485,7 +485,7 @@ fn load_refresh_token() -> Result<Option<String>, String> {
 }
 
 fn clear_refresh_token() -> Result<(), String> {
-    match keyring_entry()?.delete_password() {
+    match keyring_entry()?.delete_credential() {
         Ok(_) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(e.to_string()),

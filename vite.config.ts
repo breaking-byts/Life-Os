@@ -7,8 +7,21 @@ import tailwindcss from '@tailwindcss/vite'
 import { nitro } from 'nitro/vite'
 
 const config = defineConfig({
+  server: {
+    host: '127.0.0.1',
+    port: 3000,
+    strictPort: true,
+    watch: {
+      usePolling: true,
+      interval: 500,
+    },
+  },
   plugins: [
-    devtools(),
+    devtools({
+      eventBusConfig: {
+        enabled: false,
+      },
+    }),
     nitro(),
     // this is the plugin that enables path aliases
     viteTsConfigPaths({
