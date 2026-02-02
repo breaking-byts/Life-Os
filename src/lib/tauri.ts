@@ -291,10 +291,10 @@ export const tauri = {
   ) =>
     invoke<Array<CalendarItem>>('get_calendar_items', {
       query: {
-        start_date: startDate,
-        end_date: endDate,
-        include_assignments: includeAssignments,
-        include_exams: includeExams,
+        startDate,
+        endDate,
+        includeAssignments,
+        includeExams,
       },
     }),
 
@@ -310,18 +310,18 @@ export const tauri = {
   deleteWeekPlanBlock: (id: number) =>
     invoke<boolean>('delete_week_plan_block', { id }),
   clearSuggestedBlocks: (weekStartDate: string) =>
-    invoke<number>('clear_suggested_blocks', { week_start_date: weekStartDate }),
+    invoke<number>('clear_suggested_blocks', { weekStartDate }),
   bulkCreatePlanBlocks: (blocks: Array<WeekPlanBlockInput>) =>
     invoke<Array<WeekPlanBlock>>('bulk_create_plan_blocks', { blocks }),
 
   // Google Calendar sync
   setGoogleClientId: (clientId: string) =>
-    invoke<boolean>('set_google_client_id', { client_id: clientId }),
+    invoke<boolean>('set_google_client_id', { clientId }),
   googleOauthBegin: () =>
     invoke<GoogleAuthBeginResponse>('google_oauth_begin'),
   googleOauthComplete: (callbackUrl?: string) =>
     invoke<GoogleAccount>('google_oauth_complete', {
-      callback_url: callbackUrl,
+      callbackUrl,
     }),
   googleSyncNow: () => invoke<boolean>('google_sync_now'),
   getGoogleSyncStatus: () =>
