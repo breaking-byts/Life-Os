@@ -142,13 +142,14 @@ pub async fn get_calendar_items(
             // One-off event: check if in range
             let event_date = sa.split('T').next().unwrap_or("");
             if event_date >= query.start_date.as_str() && event_date <= query.end_date.as_str() {
+                let is_all_day = !sa.contains('T') || !ea.contains('T');
                 items.push(CalendarItem {
                     id: format!("ce_{}", id),
                     source: "calendar_event".to_string(),
                     title: title.clone(),
                     start_at: sa,
                     end_at: ea,
-                    all_day: false,
+                    all_day: is_all_day,
                     color: None,
                     course_id: None,
                     course_name: None,

@@ -258,6 +258,71 @@ export interface SimilarExperience {
   similarity: number
 }
 
+export interface CalendarItem {
+  id: string
+  source: string
+  title: string
+  start_at: string
+  end_at: string
+  all_day: boolean
+  color?: string | null
+  course_id?: number | null
+  course_name?: string | null
+  category?: string | null
+  status?: string | null
+  locked: boolean
+  editable: boolean
+  metadata_json?: string | null
+}
+
+export interface WeekPlanBlock {
+  id: number
+  user_id: number
+  week_start_date: string
+  start_at: string
+  end_at: string
+  block_type: string
+  course_id?: number | null
+  weekly_task_id?: number | null
+  title?: string | null
+  status?: 'suggested' | 'accepted' | 'locked' | string | null
+  rationale_json?: string | null
+  created_at?: string | null
+}
+
+export interface WeekPlanBlockInput {
+  user_id?: number
+  week_start_date: string
+  start_at: string
+  end_at: string
+  block_type: string
+  course_id?: number | null
+  weekly_task_id?: number | null
+  title?: string | null
+  status?: 'suggested' | 'accepted' | 'locked' | string | null
+  rationale_json?: string | null
+}
+
+export interface GoogleAuthBeginResponse {
+  auth_url: string
+  redirect_uri: string
+}
+
+export interface GoogleSyncStatus {
+  connected: boolean
+  email?: string | null
+  last_sync?: string | null
+  client_id_set: boolean
+}
+
+export interface GoogleAccount {
+  id: number
+  user_id: number
+  google_user_id: string
+  email?: string | null
+  connected_at?: string | null
+}
+
 // Dashboard Revamp Types
 export interface CourseProgress {
   course_id: number

@@ -38,6 +38,7 @@ pub fn run() {
           .expect("failed to ensure default user");
 
         app_handle.manage(DbState(pool));
+        app_handle.manage(commands::google_calendar::GoogleState::default());
       });
 
       Ok(())
@@ -152,6 +153,13 @@ pub fn run() {
        commands::intelligence::search_similar_experiences,
        commands::intelligence::set_reward_weights,
        commands::intelligence::set_exploration_rate,
+       // Google Calendar sync
+       commands::google_calendar::set_google_client_id,
+       commands::google_calendar::google_oauth_begin,
+       commands::google_calendar::google_oauth_complete,
+       commands::google_calendar::google_sync_now,
+       commands::google_calendar::get_google_sync_status,
+       commands::google_calendar::disconnect_google,
 
     ])
     .run(tauri::generate_context!())

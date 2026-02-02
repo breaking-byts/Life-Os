@@ -18,3 +18,4 @@ pub mod analytics;
 pub mod debug;
 pub mod intelligence;
 pub mod exams;
+pub mod google_calendar;

@@ -27,6 +27,11 @@ chrono = { version = "0.4", features = ["serde"] }
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "macros"] }
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["json"] }
+base64 = "0.22"
+sha2 = "0.10"
+url = "2.5"
+keyring = "3.6"
+urlencoding = "2.1"
 
 # ML/Agent dependencies
 ndarray = { version = "0.17", features = ["serde"] }  # Numerical computing for feature vectors (matches ort 2.0)

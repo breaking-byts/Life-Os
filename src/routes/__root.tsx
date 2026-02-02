@@ -52,6 +52,27 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         console.error('Failed to sync exercises:', err)
       })
   }, [])
+
+  React.useEffect(() => {
+    let intervalId: number | undefined
+
+    const syncGoogle = async () => {
+      try {
+        const status = await tauri.getGoogleSyncStatus()
+        if (!status.connected) return
+        await tauri.googleSyncNow()
+      } catch (err) {
+        console.warn('Google sync failed:', err)
+      }
+    }
+
+    syncGoogle()
+    intervalId = window.setInterval(syncGoogle, 10 * 60 * 1000)
+
+    return () => {
+      if (intervalId) window.clearInterval(intervalId)
+    }
+  }, [])
   return (
     <html lang="en" className="h-full" suppressHydrationWarning>
       <head>

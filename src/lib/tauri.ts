@@ -6,6 +6,7 @@ import type {
   Assignment,
   BigThreeGoal,
   BigThreeInput,
+  CalendarItem,
   CheckIn,
   Course,
   CourseAnalytics,
@@ -13,6 +14,9 @@ import type {
   DetailedStats,
   Exam,
   Exercise,
+  GoogleAccount,
+  GoogleAuthBeginResponse,
+  GoogleSyncStatus,
   PersonalRecord,
   PracticeLog,
   RichContext,
@@ -20,6 +24,8 @@ import type {
   SimilarExperience,
   Skill,
   UserSettings,
+  WeekPlanBlock,
+  WeekPlanBlockInput,
   WeeklyReview,
   Workout,
   WorkoutExercise,
@@ -275,4 +281,50 @@ export const tauri = {
     invoke<Array<PersonalRecord>>('check_and_update_prs', { workoutId }),
   getAchievements: () => invoke<Array<Achievement>>('get_achievements'),
   checkAchievements: () => invoke<Array<Achievement>>('check_achievements'),
+
+  // Calendar aggregation
+  getCalendarItems: (
+    startDate: string,
+    endDate: string,
+    includeAssignments?: boolean,
+    includeExams?: boolean,
+  ) =>
+    invoke<Array<CalendarItem>>('get_calendar_items', {
+      query: {
+        start_date: startDate,
+        end_date: endDate,
+        include_assignments: includeAssignments,
+        include_exams: includeExams,
+      },
+    }),
+
+  // Week plan blocks
+  createWeekPlanBlock: (data: WeekPlanBlockInput) =>
+    invoke<WeekPlanBlock>('create_week_plan_block', { data }),
+  updateWeekPlanBlock: (id: number, data: WeekPlanBlockInput) =>
+    invoke<WeekPlanBlock>('update_week_plan_block', { id, data }),
+  acceptWeekPlanBlock: (id: number) =>
+    invoke<WeekPlanBlock>('accept_week_plan_block', { id }),
+  lockWeekPlanBlock: (id: number) =>
+    invoke<WeekPlanBlock>('lock_week_plan_block', { id }),
+  deleteWeekPlanBlock: (id: number) =>
+    invoke<boolean>('delete_week_plan_block', { id }),
+  clearSuggestedBlocks: (weekStartDate: string) =>
+    invoke<number>('clear_suggested_blocks', { week_start_date: weekStartDate }),
+  bulkCreatePlanBlocks: (blocks: Array<WeekPlanBlockInput>) =>
+    invoke<Array<WeekPlanBlock>>('bulk_create_plan_blocks', { blocks }),
+
+  // Google Calendar sync
+  setGoogleClientId: (clientId: string) =>
+    invoke<boolean>('set_google_client_id', { client_id: clientId }),
+  googleOauthBegin: () =>
+    invoke<GoogleAuthBeginResponse>('google_oauth_begin'),
+  googleOauthComplete: (callbackUrl?: string) =>
+    invoke<GoogleAccount>('google_oauth_complete', {
+      callback_url: callbackUrl,
+    }),
+  googleSyncNow: () => invoke<boolean>('google_sync_now'),
+  getGoogleSyncStatus: () =>
+    invoke<GoogleSyncStatus>('get_google_sync_status'),
+  disconnectGoogle: () => invoke<boolean>('disconnect_google'),
 }

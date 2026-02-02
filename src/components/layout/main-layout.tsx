@@ -1,6 +1,7 @@
 import { Link, Outlet, useRouterState } from '@tanstack/react-router'
 import {
   BookOpenIcon,
+  CalendarDaysIcon,
   CalendarRangeIcon,
   DumbbellIcon,
   MenuIcon,
@@ -19,6 +20,7 @@ const navItems = [
   { label: 'Academic', to: '/academic', icon: BookOpenIcon },
   { label: 'Skills', to: '/skills', icon: SparklesIcon },
   { label: 'Physical', to: '/physical', icon: DumbbellIcon },
+  { label: 'Calendar', to: '/calendar', icon: CalendarDaysIcon },
   { label: 'Weekly', to: '/weekly', icon: CalendarRangeIcon },
   { label: 'Settings', to: '/settings', icon: SettingsIcon },
 ]
