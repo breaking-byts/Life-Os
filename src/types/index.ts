@@ -313,6 +313,7 @@ export interface GoogleSyncStatus {
   email?: string | null
   last_sync?: string | null
   client_id_set: boolean
+  client_id?: string | null
 }
 
 export interface GoogleAccount {

@@ -6,7 +6,7 @@ use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, NaiveDateTime, Time
 use keyring::Entry;
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::Digest;
 use tauri::State;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -45,6 +45,7 @@ struct OAuthSession {
     state: String,
     code_verifier: String,
     redirect_uri: String,
+    client_id: String,
     callback_url: Option<String>,
 }
 
@@ -66,6 +67,7 @@ pub struct GoogleSyncStatus {
     pub email: Option<String>,
     pub last_sync: Option<String>,
     pub client_id_set: bool,
+    pub client_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -160,6 +162,8 @@ pub async fn set_google_client_id(
     client_id: String,
 ) -> Result<bool, String> {
     let pool = &state.0;
+    let trimmed = client_id.trim().to_string();
+    let stored: Option<String> = if trimmed.is_empty() { None } else { Some(trimmed) };
 
     sqlx::query(
         r#"
@@ -170,7 +174,7 @@ pub async fn set_google_client_id(
             updated_at = CURRENT_TIMESTAMP
         "#,
     )
-    .bind(client_id)
+    .bind(stored)
     .execute(pool)
     .await
     .map_err(|e| e.to_string())?;
@@ -210,6 +214,7 @@ pub async fn google_oauth_begin(
         state: state_token.clone(),
         code_verifier,
         redirect_uri: redirect_uri.clone(),
+        client_id: client_id.clone(),
         callback_url: None,
     };
 
@@ -252,9 +257,6 @@ pub async fn google_oauth_complete(
     google_state: State<'_, GoogleState>,
     callback_url: Option<String>,
 ) -> Result<GoogleAccount, String> {
-    let client_id = get_google_client_id(&state.0).await?
-        .ok_or_else(|| "Google client ID not set".to_string())?;
-
     let mut session_opt = google_state.oauth.lock().await;
     let session = session_opt.clone().ok_or_else(|| "OAuth session not initialized".to_string())?;
 
@@ -283,21 +285,21 @@ pub async fn google_oauth_complete(
     }
 
     let client = Client::new();
-    let token_res = client
-        .post(GOOGLE_TOKEN_URL)
-        .form(&[
-            ("code", code.as_str()),
-            ("client_id", client_id.as_str()),
-            ("code_verifier", session.code_verifier.as_str()),
-            ("redirect_uri", session.redirect_uri.as_str()),
-            ("grant_type", "authorization_code"),
-        ])
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json::<GoogleTokenResponse>()
-        .await
-        .map_err(|e| e.to_string())?;
+    let token_res = parse_json_response::<GoogleTokenResponse>(
+        client
+            .post(GOOGLE_TOKEN_URL)
+            .form(&[
+                ("code", code.as_str()),
+                ("client_id", session.client_id.as_str()),
+                ("code_verifier", session.code_verifier.as_str()),
+                ("redirect_uri", session.redirect_uri.as_str()),
+                ("grant_type", "authorization_code"),
+            ])
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .await?;
 
     if let Some(refresh) = token_res.refresh_token.clone() {
         store_refresh_token(&refresh)?;
@@ -313,17 +315,20 @@ pub async fn google_oauth_complete(
         });
     }
 
-    let user_info = client
-        .get(GOOGLE_USERINFO_URL)
-        .bearer_auth(&token_res.access_token)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json::<GoogleUserInfo>()
-        .await
-        .map_err(|e| e.to_string())?;
+    let user_info = parse_json_response::<GoogleUserInfo>(
+        client
+            .get(GOOGLE_USERINFO_URL)
+            .bearer_auth(&token_res.access_token)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .await?;
 
     let account = upsert_google_account(&state.0, &user_info).await?;
+
+    // Persist the client id used for this session
+    let _ = set_google_client_id(state, session.client_id.clone()).await;
 
     // Initialize calendar prefs row if missing
     sqlx::query(
@@ -352,15 +357,15 @@ pub async fn google_sync_now(
     let access_token = ensure_access_token(&google_state, &client_id).await?;
     let client = Client::new();
 
-    let calendar_list = client
-        .get(format!("{}/users/me/calendarList", GOOGLE_CALENDAR_API))
-        .bearer_auth(&access_token)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json::<GoogleCalendarList>()
-        .await
-        .map_err(|e| e.to_string())?;
+    let calendar_list = parse_json_response::<GoogleCalendarList>(
+        client
+            .get(format!("{}/users/me/calendarList", GOOGLE_CALENDAR_API))
+            .bearer_auth(&access_token)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .await?;
 
     let calendars = calendar_list.items.unwrap_or_default();
     if calendars.is_empty() {
@@ -413,6 +418,7 @@ pub async fn get_google_sync_status(state: State<'_, DbState>) -> Result<GoogleS
         email: account.as_ref().and_then(|a| a.email.clone()),
         last_sync,
         client_id_set: client_id.is_some(),
+        client_id,
     })
 }
 
@@ -511,19 +517,19 @@ async fn ensure_access_token(
 
     let refresh_token = load_refresh_token()?.ok_or_else(|| "Missing refresh token".to_string())?;
     let client = Client::new();
-    let token_res = client
-        .post(GOOGLE_TOKEN_URL)
-        .form(&[
-            ("client_id", client_id),
-            ("refresh_token", refresh_token.as_str()),
-            ("grant_type", "refresh_token"),
-        ])
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json::<GoogleTokenResponse>()
-        .await
-        .map_err(|e| e.to_string())?;
+    let token_res = parse_json_response::<GoogleTokenResponse>(
+        client
+            .post(GOOGLE_TOKEN_URL)
+            .form(&[
+                ("client_id", client_id),
+                ("refresh_token", refresh_token.as_str()),
+                ("grant_type", "refresh_token"),
+            ])
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .await?;
 
     let expires_at = Utc::now() + Duration::seconds(token_res.expires_in);
 
@@ -595,13 +601,10 @@ async fn fetch_events(
             req = req.query(&[("pageToken", token.as_str())]);
         }
 
-        let res = req
-            .send()
-            .await
-            .map_err(|e| e.to_string())?
-            .json::<GoogleEventList>()
-            .await
-            .map_err(|e| e.to_string())?;
+        let res = parse_json_response::<GoogleEventList>(
+            req.send().await.map_err(|e| e.to_string())?,
+        )
+        .await?;
 
         events.extend(res.items.unwrap_or_default());
         if let Some(next) = res.next_page_token {
@@ -648,19 +651,19 @@ async fn ensure_life_os_plan_calendar(
     }
 
     let create_url = format!("{}/calendars", GOOGLE_CALENDAR_API);
-    let created = client
-        .post(create_url)
-        .bearer_auth(access_token)
-        .json(&serde_json::json!({
-            "summary": LIFE_OS_PLAN_CALENDAR,
-            "timeZone": "UTC",
-        }))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json::<GoogleCalendarListItem>()
-        .await
-        .map_err(|e| e.to_string())?;
+    let created = parse_json_response::<GoogleCalendarListItem>(
+        client
+            .post(create_url)
+            .bearer_auth(access_token)
+            .json(&serde_json::json!({
+                "summary": LIFE_OS_PLAN_CALENDAR,
+                "timeZone": "UTC",
+            }))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .await?;
 
     sqlx::query(
         "INSERT INTO google_calendar_prefs (user_id, import_all, export_calendar_id, updated_at)
@@ -1090,16 +1093,16 @@ async fn insert_google_event(
         urlencoding::encode(calendar_id)
     );
 
-    let res = client
-        .post(url)
-        .bearer_auth(access_token)
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json::<GoogleEvent>()
-        .await
-        .map_err(|e| e.to_string())?;
+    let res = parse_json_response::<GoogleEvent>(
+        client
+            .post(url)
+            .bearer_auth(access_token)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .await?;
 
     Ok(res.id)
 }
@@ -1136,15 +1139,27 @@ async fn patch_google_event(
         urlencoding::encode(event_id)
     );
 
-    client
-        .patch(url)
-        .bearer_auth(access_token)
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    parse_json_response::<serde_json::Value>(
+        client
+            .patch(url)
+            .bearer_auth(access_token)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+    )
+    .await?;
 
     Ok(())
+}
+
+async fn parse_json_response<T: DeserializeOwned>(res: reqwest::Response) -> Result<T, String> {
+    let status = res.status();
+    let body = res.text().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        return Err(format!("Google API error {}: {}", status, body));
+    }
+    serde_json::from_str::<T>(&body).map_err(|e| format!("error decoding response body: {e}; body: {body}"))
 }
 
 fn normalize_datetime(value: &str) -> String {

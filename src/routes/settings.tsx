@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { MainLayout } from '@/components/layout/main-layout'
 import { Button } from '@/components/ui/button'
@@ -25,6 +25,13 @@ function SettingsPage() {
     queryKey: ['google-sync-status'],
     queryFn: tauri.getGoogleSyncStatus,
   })
+
+  useEffect(() => {
+    const stored = syncStatusQuery.data?.client_id
+    if (stored && !clientId) {
+      setClientId(stored)
+    }
+  }, [syncStatusQuery.data?.client_id, clientId])
 
   const saveClientId = useMutation({
     mutationFn: (value: string) => tauri.setGoogleClientId(value),
@@ -53,6 +60,11 @@ function SettingsPage() {
     const trimmed = clientId.trim()
     if (!trimmed) return
     await saveClientId.mutateAsync(trimmed)
+  }
+
+  const handleClearClientId = async () => {
+    await saveClientId.mutateAsync('')
+    setClientId('')
   }
 
   const pollForCompletion = async () => {
@@ -172,6 +184,13 @@ function SettingsPage() {
               Save client ID
             </Button>
             <Button
+              variant="ghost"
+              onClick={handleClearClientId}
+              disabled={saveClientId.isPending}
+            >
+              Clear saved ID
+            </Button>
+            <Button
               variant="outline"
               onClick={handleConnect}
               disabled={connecting || saveClientId.isPending || !canConnect}
@@ -264,6 +283,11 @@ function SettingsPage() {
                     ? new Date(syncStatusQuery.data.last_sync).toLocaleString()
                     : 'Never'}
                 </div>
+                {syncStatusQuery.data.client_id && (
+                  <div className="text-xs">
+                    Stored client ID: {syncStatusQuery.data.client_id}
+                  </div>
+                )}
               </div>
             ) : (
               <div>Not connected yet.</div>
