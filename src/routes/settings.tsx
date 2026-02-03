@@ -105,6 +105,15 @@ function SettingsPage() {
     }
   }
 
+  const handleCopyAuthUrl = async () => {
+    if (!pendingAuthUrl) return
+    try {
+      await navigator.clipboard.writeText(pendingAuthUrl)
+    } catch {
+      setConnectError('Could not copy auth URL. Please select and copy it manually.')
+    }
+  }
+
   const handleConnect = async () => {
     setConnecting(true)
     setConnectError(null)
@@ -197,6 +206,19 @@ function SettingsPage() {
                   {pendingRedirectUri}
                 </span>
               </div>
+              {pendingAuthUrl && (
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">
+                    If the browser did not open, paste this URL into your browser to sign in:
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input readOnly value={pendingAuthUrl} />
+                    <Button variant="outline" onClick={handleCopyAuthUrl}>
+                      Copy auth URL
+                    </Button>
+                  </div>
+                </div>
+              )}
               <div className="text-xs text-muted-foreground">
                 If the browser does not redirect automatically, paste the full
                 callback URL here and click “Complete connection”.

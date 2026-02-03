@@ -12,7 +12,9 @@
     "check": "prettier --write . && eslint --fix",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "clean:tauri": "bash scripts/clean-tauri.sh",
+    "clean:tauri:all": "CLEAN_NODE_CACHE=1 CLEAN_CARGO_CACHE=1 bash scripts/clean-tauri.sh"
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",

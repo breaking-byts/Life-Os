@@ -228,10 +228,12 @@ pub async fn google_oauth_begin(
                     let parts: Vec<&str> = path_line.split_whitespace().collect();
                     if parts.len() >= 2 {
                         let path = parts[1];
-                        let callback_url = format!("http://{}{}", local_addr, path);
-                        let mut lock = oauth_handle.lock().await;
-                        if let Some(ref mut session) = *lock {
-                            session.callback_url = Some(callback_url);
+                        if path.contains("code=") {
+                            let callback_url = format!("http://{}{}", local_addr, path);
+                            let mut lock = oauth_handle.lock().await;
+                            if let Some(ref mut session) = *lock {
+                                session.callback_url = Some(callback_url);
+                            }
                         }
                     }
                 }
