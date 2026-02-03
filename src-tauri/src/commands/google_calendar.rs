@@ -69,6 +69,7 @@ pub struct GoogleSyncStatus {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct GoogleTokenResponse {
     access_token: String,
     expires_in: i64,
@@ -88,6 +89,7 @@ struct GoogleCalendarList {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
 struct GoogleCalendarListItem {
     id: String,
     summary: Option<String>,
@@ -102,6 +104,7 @@ struct GoogleEventList {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
 struct GoogleEvent {
     id: String,
     summary: Option<String>,
@@ -115,6 +118,7 @@ struct GoogleEvent {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
 struct GoogleEventTime {
     #[serde(rename = "dateTime")]
     date_time: Option<String>,

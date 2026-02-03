@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { MainLayout } from '@/components/layout/main-layout'
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,10 @@ function SettingsPage() {
   const [clientId, setClientId] = useState('')
   const [connecting, setConnecting] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
+  const [pendingAuthUrl, setPendingAuthUrl] = useState<string | null>(null)
+  const [pendingRedirectUri, setPendingRedirectUri] = useState<string | null>(null)
+  const [callbackUrl, setCallbackUrl] = useState('')
+  const pollingRef = useRef(false)
 
   const syncStatusQuery = useQuery({
     queryKey: ['google-sync-status'],
@@ -54,13 +58,16 @@ function SettingsPage() {
   const pollForCompletion = async () => {
     let attempts = 0
     setConnectError(null)
+    pollingRef.current = true
 
     const poll = async () => {
+      if (!pollingRef.current) return
       attempts += 1
       try {
         await tauri.googleOauthComplete()
         await tauri.googleSyncNow()
         setConnecting(false)
+        pollingRef.current = false
         queryClient.invalidateQueries({ queryKey: ['google-sync-status'] })
         queryClient.invalidateQueries({ queryKey: ['calendar-items'] })
       } catch (err) {
@@ -71,12 +78,31 @@ function SettingsPage() {
           setTimeout(poll, 1000)
         } else {
           setConnecting(false)
+          pollingRef.current = false
           setConnectError(message)
         }
       }
     }
 
     poll()
+  }
+
+  const handleManualComplete = async () => {
+    if (!callbackUrl.trim()) return
+    setConnectError(null)
+    try {
+      pollingRef.current = false
+      await tauri.googleOauthComplete(callbackUrl.trim())
+      await tauri.googleSyncNow()
+      setConnecting(false)
+      setPendingAuthUrl(null)
+      setPendingRedirectUri(null)
+      setCallbackUrl('')
+      queryClient.invalidateQueries({ queryKey: ['google-sync-status'] })
+      queryClient.invalidateQueries({ queryKey: ['calendar-items'] })
+    } catch (err) {
+      setConnectError(String(err))
+    }
   }
 
   const handleConnect = async () => {
@@ -90,10 +116,13 @@ function SettingsPage() {
       }
 
       const auth = await tauri.googleOauthBegin()
+      setPendingAuthUrl(auth.auth_url)
+      setPendingRedirectUri(auth.redirect_uri)
       window.open(auth.auth_url, '_blank', 'noopener,noreferrer')
       await pollForCompletion()
     } catch (err) {
       setConnecting(false)
+      pollingRef.current = false
       setConnectError(String(err))
     }
   }
@@ -158,6 +187,45 @@ function SettingsPage() {
 
           {connectError && (
             <p className="text-sm text-red-500">{connectError}</p>
+          )}
+
+          {connecting && pendingRedirectUri && (
+            <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground space-y-2">
+              <div>
+                Waiting for Google callback on:
+                <span className="ml-1 font-mono text-xs text-foreground">
+                  {pendingRedirectUri}
+                </span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                If the browser does not redirect automatically, paste the full
+                callback URL here and click “Complete connection”.
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  placeholder="http://127.0.0.1:12345/callback?code=..."
+                  value={callbackUrl}
+                  onChange={(event) => setCallbackUrl(event.target.value)}
+                />
+                <Button
+                  variant="outline"
+                  onClick={handleManualComplete}
+                  disabled={!callbackUrl.trim()}
+                >
+                  Complete connection
+                </Button>
+                {pendingAuthUrl && (
+                  <Button
+                    variant="ghost"
+                    onClick={() =>
+                      window.open(pendingAuthUrl, '_blank', 'noopener,noreferrer')
+                    }
+                  >
+                    Open auth again
+                  </Button>
+                )}
+              </div>
+            </div>
           )}
 
           <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
