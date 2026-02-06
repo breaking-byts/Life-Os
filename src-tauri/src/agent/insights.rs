@@ -447,7 +447,7 @@ mod tests {
         let err = result.unwrap_err();
         assert_eq!(err.code, ErrorCode::Internal);
         assert!(
-            err.message.contains("check_ins") || err.message.contains("no such table"),
+            err.message.contains("check_ins"),
             "error message: {}",
             err.message
         );
@@ -466,7 +466,7 @@ mod tests {
         let err = result.unwrap_err();
         assert_eq!(err.code, ErrorCode::Internal);
         assert!(
-            err.message.contains("agent_bandit_arms") || err.message.contains("no such table"),
+            err.message.contains("agent_bandit_arms"),
             "error message: {}",
             err.message
         );
@@ -485,7 +485,7 @@ mod tests {
         let err = result.unwrap_err();
         assert_eq!(err.code, ErrorCode::Internal);
         assert!(
-            err.message.contains("agent_patterns") || err.message.contains("no such table"),
+            err.message.contains("agent_patterns"),
             "error message: {}",
             err.message
         );
