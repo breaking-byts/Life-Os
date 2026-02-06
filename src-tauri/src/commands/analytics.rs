@@ -317,10 +317,7 @@ pub async fn update_user_settings(
 // DETAILED STATS WITH BREAKDOWN
 // ============================================================================
 
-#[tauri::command]
-pub async fn get_detailed_stats(state: State<'_, DbState>) -> Result<DetailedStats, String> {
-    let pool = &state.0;
-    
+pub async fn get_detailed_stats_impl(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<DetailedStats, String> {
     // Get user settings for targets
     let settings = sqlx::query_as::<_, (i64, i64)>(
         "SELECT COALESCE(weekly_workout_target, 3), COALESCE(weekly_active_skills_target, 5) FROM user_settings WHERE user_id = 1"
@@ -341,15 +338,18 @@ pub async fn get_detailed_stats(state: State<'_, DbState>) -> Result<DetailedSta
             c.target_weekly_hours,
             c.current_grade,
             c.target_grade,
-            (
-                SELECT COALESCE(SUM(s.duration_minutes), 0) / 60.0
-                FROM sessions s
-                WHERE s.session_type = 'study'
-                  AND s.reference_type = 'course'
-                  AND s.reference_id = c.id
-                  AND s.started_at >= date('now', 'weekday 0', '-7 days')
-            ) as hours_this_week
+            COALESCE(s.hours_this_week, 0) as hours_this_week
         FROM courses c
+        LEFT JOIN (
+            SELECT
+                reference_id,
+                COALESCE(SUM(duration_minutes), 0) / 60.0 as hours_this_week
+            FROM sessions
+            WHERE session_type = 'study'
+              AND reference_type = 'course'
+              AND started_at >= date('now', 'weekday 0', '-7 days')
+            GROUP BY reference_id
+        ) s ON s.reference_id = c.id
         WHERE c.is_active = 1
         ORDER BY c.name
         "#
@@ -401,14 +401,17 @@ pub async fn get_detailed_stats(state: State<'_, DbState>) -> Result<DetailedSta
             s.target_weekly_hours,
             s.total_hours,
             s.current_level,
-            (
-                SELECT COALESCE(SUM(p.duration_minutes), 0) / 60.0
-                FROM practice_logs p
-                WHERE p.skill_id = s.id
-                  AND p.logged_at >= date('now', 'weekday 0', '-7 days')
-            ) as hours_this_week,
+            COALESCE(p.hours_this_week, 0) as hours_this_week,
             COALESCE(s.target_hours, 100.0) as target_hours
         FROM skills s
+        LEFT JOIN (
+            SELECT
+                skill_id,
+                COALESCE(SUM(duration_minutes), 0) / 60.0 as hours_this_week
+            FROM practice_logs
+            WHERE logged_at >= date('now', 'weekday 0', '-7 days')
+            GROUP BY skill_id
+        ) p ON p.skill_id = s.id
         ORDER BY s.name
         "#
     )
@@ -491,6 +494,11 @@ pub async fn get_detailed_stats(state: State<'_, DbState>) -> Result<DetailedSta
         active_skills_count,
         skills_target: settings.1,
     })
+}
+
+#[tauri::command]
+pub async fn get_detailed_stats(state: State<'_, DbState>) -> Result<DetailedStats, String> {
+    get_detailed_stats_impl(&state.0).await
 }
 
 // ============================================================================
@@ -1333,5 +1341,81 @@ mod tests {
         assert!(json.contains("\"study_hours_week\":8.5"));
         assert!(json.contains("\"workout_percent\":66.67"));
         assert!(json.contains("\"active_skills_count\":3"));
+    }
+
+    #[tokio::test]
+    async fn test_get_detailed_stats_performance() {
+        use sqlx::sqlite::SqlitePoolOptions;
+        use crate::db::migrations::run_migrations;
+        use super::get_detailed_stats_impl;
+
+        // Setup in-memory DB
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        // Disable FKs for migration because migration 5 inserts data referencing user 1 which doesn't exist yet
+        sqlx::query("PRAGMA foreign_keys = OFF").execute(&pool).await.unwrap();
+        run_migrations(&pool).await.unwrap();
+        sqlx::query("PRAGMA foreign_keys = ON").execute(&pool).await.unwrap();
+
+        // Ensure default user exists
+        sqlx::query("INSERT OR IGNORE INTO users (id, name, email) VALUES (1, 'Test User', 'test@example.com')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Ensure user settings exist
+         sqlx::query("INSERT OR IGNORE INTO user_settings (id, user_id, weekly_workout_target, weekly_active_skills_target) VALUES (1, 1, 3, 5)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Populate Data
+        // 50 courses
+        for i in 0..50 {
+            sqlx::query("INSERT INTO courses (id, user_id, name, is_active, current_grade, target_grade) VALUES (?, 1, ?, 1, 85.0, 90.0)")
+                .bind(i)
+                .bind(format!("Course {}", i))
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            // 200 sessions per course (10,000 total)
+            for _j in 0..200 {
+                sqlx::query("INSERT INTO sessions (user_id, session_type, reference_type, reference_id, duration_minutes, started_at) VALUES (1, 'study', 'course', ?, 30, date('now', '-1 day'))")
+                    .bind(i)
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            }
+        }
+
+        // Also add some skills and practice logs
+        for i in 0..50 {
+             sqlx::query("INSERT INTO skills (id, user_id, name, target_weekly_hours) VALUES (?, 1, ?, 5.0)")
+                .bind(i)
+                .bind(format!("Skill {}", i))
+                .execute(&pool)
+                .await
+                .unwrap();
+
+             for _j in 0..50 {
+                 sqlx::query("INSERT INTO practice_logs (skill_id, duration_minutes, logged_at) VALUES (?, 30, date('now', '-1 day'))")
+                    .bind(i)
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+             }
+        }
+
+        // Measure
+        let start = std::time::Instant::now();
+        let _stats = get_detailed_stats_impl(&pool).await.unwrap();
+        let duration = start.elapsed();
+
+        println!("get_detailed_stats_impl took: {:?}", duration);
     }
 }
