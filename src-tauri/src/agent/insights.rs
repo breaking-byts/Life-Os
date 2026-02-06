@@ -32,8 +32,7 @@ pub async fn get_insights(state: State<'_, DbState>) -> Result<Vec<Insight>, Api
     // Capture current context
     let context = FeatureStore::capture_context(pool)
         .await
-        .map_err(ApiError::internal)
-        .unwrap_or_default();
+        .map_err(ApiError::internal)?;
     
     // Save context snapshot for pattern mining (don't fail if this fails)
     let _ = FeatureStore::save_snapshot(pool, &context).await;
@@ -41,12 +40,12 @@ pub async fn get_insights(state: State<'_, DbState>) -> Result<Vec<Insight>, Api
     // Get top bandit arms to show
     let selected_arms = ContextualBandit::select_top_arms(pool, &context, 3)
         .await
-        .unwrap_or_default();
+        .map_err(ApiError::internal)?;
     
     // Get active patterns for context-aware insights
     let patterns = PatternMiner::get_active_patterns(pool)
         .await
-        .unwrap_or_default();
+        .map_err(ApiError::internal)?;
 
     // Generate insights from selected arms
     for arm in &selected_arms {
@@ -405,4 +404,107 @@ pub async fn get_user_profile(state: State<'_, DbState>) -> Result<Vec<crate::ml
     UserProfile::get_all_dimensions(pool)
         .await
         .map_err(ApiError::internal)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::ErrorCode;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use std::str::FromStr;
+    use tauri::ipc::CallbackFn;
+    use tauri::test::{get_ipc_response, mock_context, noop_assets, INVOKE_KEY};
+    use tauri::webview::InvokeRequest;
+    use tauri::WebviewWindowBuilder;
+
+    async fn setup_pool_with_migrations() -> sqlx::Pool<sqlx::Sqlite> {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("Failed to connect to in-memory DB");
+
+        crate::db::migrations::run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
+
+        pool
+    }
+
+    fn build_webview_with_pool(pool: sqlx::Pool<sqlx::Sqlite>) -> tauri::WebviewWindow<tauri::test::MockRuntime> {
+        let app = tauri::test::mock_builder()
+            .manage(DbState(pool))
+            .invoke_handler(tauri::generate_handler![get_insights])
+            .build(mock_context(noop_assets()))
+            .expect("Failed to build test app");
+
+        WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("Failed to build test webview")
+    }
+
+    fn invoke_get_insights(webview: &tauri::WebviewWindow<tauri::test::MockRuntime>) -> Result<(), ApiError> {
+        let request = InvokeRequest {
+            cmd: "get_insights".into(),
+            callback: CallbackFn(0),
+            error: CallbackFn(1),
+            url: "http://tauri.localhost".parse().expect("Failed to parse invoke url"),
+            body: tauri::ipc::InvokeBody::default(),
+            headers: Default::default(),
+            invoke_key: INVOKE_KEY.to_string(),
+        };
+
+        match get_ipc_response(webview, request) {
+            Ok(_) => Ok(()),
+            Err(value) => Err(serde_json::from_value(value).expect("Failed to deserialize ApiError")),
+        }
+    }
+
+    #[tokio::test]
+    async fn get_insights_returns_error_when_capture_context_fails() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("Failed to connect to in-memory DB");
+        let webview = build_webview_with_pool(pool);
+
+        let result = invoke_get_insights(&webview);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code, ErrorCode::Internal);
+    }
+
+    #[tokio::test]
+    async fn get_insights_returns_error_when_bandit_selection_fails() {
+        let pool = setup_pool_with_migrations().await;
+        sqlx::query("DROP TABLE agent_bandit_arms")
+            .execute(&pool)
+            .await
+            .expect("Failed to drop bandit arms table");
+        let webview = build_webview_with_pool(pool);
+
+        let result = invoke_get_insights(&webview);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code, ErrorCode::Internal);
+    }
+
+    #[tokio::test]
+    async fn get_insights_returns_error_when_pattern_fetch_fails() {
+        let pool = setup_pool_with_migrations().await;
+        sqlx::query("DROP TABLE agent_patterns")
+            .execute(&pool)
+            .await
+            .expect("Failed to drop patterns table");
+        let webview = build_webview_with_pool(pool);
+
+        let result = invoke_get_insights(&webview);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code, ErrorCode::Internal);
+    }
 }
