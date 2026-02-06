@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::DbState;
+use crate::{DbState, error::ApiError};
 
 #[derive(Debug, serde::Serialize)]
 pub struct StatsSummary {
@@ -108,7 +108,7 @@ pub struct PersonalRecord {
 }
 
 #[tauri::command]
-pub async fn get_stats(state: State<'_, DbState>) -> Result<StatsSummary, String> {
+pub async fn get_stats(state: State<'_, DbState>) -> Result<StatsSummary, ApiError> {
     let pool = &state.0;
 
     let study_minutes: i64 = sqlx::query_scalar(
@@ -148,7 +148,7 @@ pub async fn get_stats(state: State<'_, DbState>) -> Result<StatsSummary, String
 }
 
 #[tauri::command]
-pub async fn get_streaks(state: State<'_, DbState>) -> Result<Streaks, String> {
+pub async fn get_streaks(state: State<'_, DbState>) -> Result<Streaks, ApiError> {
     let pool = &state.0;
 
     // Study streak: consecutive days with study sessions
@@ -261,7 +261,7 @@ pub async fn get_streaks(state: State<'_, DbState>) -> Result<Streaks, String> {
 // ============================================================================
 
 #[tauri::command]
-pub async fn get_user_settings(state: State<'_, DbState>) -> Result<UserSettings, String> {
+pub async fn get_user_settings(state: State<'_, DbState>) -> Result<UserSettings, ApiError> {
     let pool = &state.0;
     
     let row = sqlx::query_as::<_, (i64, i64)>(
@@ -269,7 +269,7 @@ pub async fn get_user_settings(state: State<'_, DbState>) -> Result<UserSettings
     )
     .fetch_optional(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
     
     match row {
         Some((workout_target, skills_target)) => Ok(UserSettings {
@@ -288,7 +288,7 @@ pub async fn update_user_settings(
     state: State<'_, DbState>,
     weekly_workout_target: i64,
     weekly_active_skills_target: i64,
-) -> Result<UserSettings, String> {
+) -> Result<UserSettings, ApiError> {
     let pool = &state.0;
     
     sqlx::query(
@@ -305,7 +305,7 @@ pub async fn update_user_settings(
     .bind(weekly_active_skills_target)
     .execute(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
     
     Ok(UserSettings {
         weekly_workout_target,
@@ -318,7 +318,7 @@ pub async fn update_user_settings(
 // ============================================================================
 
 #[tauri::command]
-pub async fn get_detailed_stats(state: State<'_, DbState>) -> Result<DetailedStats, String> {
+pub async fn get_detailed_stats(state: State<'_, DbState>) -> Result<DetailedStats, ApiError> {
     let pool = &state.0;
     
     // Get user settings for targets
@@ -327,7 +327,7 @@ pub async fn get_detailed_stats(state: State<'_, DbState>) -> Result<DetailedSta
     )
     .fetch_optional(pool)
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(ApiError::from)?
     .unwrap_or((3, 5));
     
     // Get study hours breakdown by course
@@ -356,7 +356,7 @@ pub async fn get_detailed_stats(state: State<'_, DbState>) -> Result<DetailedSta
     )
     .fetch_all(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     let mut study_breakdown: Vec<CourseProgress> = Vec::new();
     let mut study_hours_week = 0.0;
@@ -414,7 +414,7 @@ pub async fn get_detailed_stats(state: State<'_, DbState>) -> Result<DetailedSta
     )
     .fetch_all(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     let mut practice_breakdown: Vec<SkillProgress> = Vec::new();
     let mut practice_hours_week = 0.0;
@@ -501,7 +501,7 @@ pub async fn get_detailed_stats(state: State<'_, DbState>) -> Result<DetailedSta
 pub async fn get_workout_heatmap(
     state: State<'_, DbState>,
     months: i32,
-) -> Result<Vec<WorkoutHeatmapDay>, String> {
+) -> Result<Vec<WorkoutHeatmapDay>, ApiError> {
     let pool = &state.0;
     
     let days = months * 30;
@@ -521,7 +521,7 @@ pub async fn get_workout_heatmap(
     .bind(-days)
     .fetch_all(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
     
     let heatmap = rows.into_iter().map(|(date, count, total_minutes)| {
         WorkoutHeatmapDay {
@@ -539,7 +539,7 @@ pub async fn get_workout_heatmap(
 // ============================================================================
 
 #[tauri::command]
-pub async fn get_personal_records(state: State<'_, DbState>) -> Result<Vec<PersonalRecord>, String> {
+pub async fn get_personal_records(state: State<'_, DbState>) -> Result<Vec<PersonalRecord>, ApiError> {
     let pool = &state.0;
     
     let rows = sqlx::query_as::<_, (i64, String, String, f64, String, Option<i64>)>(
@@ -552,7 +552,7 @@ pub async fn get_personal_records(state: State<'_, DbState>) -> Result<Vec<Perso
     )
     .fetch_all(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
     
     let prs = rows.into_iter().map(|(id, exercise_name, pr_type, value, achieved_at, workout_id)| {
         PersonalRecord {
@@ -572,7 +572,7 @@ pub async fn get_personal_records(state: State<'_, DbState>) -> Result<Vec<Perso
 pub async fn check_and_update_prs(
     state: State<'_, DbState>,
     workout_id: i64,
-) -> Result<Vec<PersonalRecord>, String> {
+) -> Result<Vec<PersonalRecord>, ApiError> {
     let pool = &state.0;
     
     // Get all exercises from this workout
@@ -586,7 +586,7 @@ pub async fn check_and_update_prs(
     .bind(workout_id)
     .fetch_all(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
     
     let mut new_prs: Vec<PersonalRecord> = Vec::new();
     
@@ -608,7 +608,7 @@ pub async fn check_and_update_prs(
             .bind(&exercise_name)
             .fetch_optional(pool)
             .await
-            .map_err(|e| e.to_string())?
+            .map_err(ApiError::from)?
             .flatten();
             
             if current_weight_pr.is_none() || weight > current_weight_pr.unwrap() {
@@ -623,12 +623,12 @@ pub async fn check_and_update_prs(
                 .bind(workout_id)
                 .execute(pool)
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(ApiError::from)?;
                 
                 let id: i64 = sqlx::query_scalar("SELECT last_insert_rowid()")
                     .fetch_one(pool)
                     .await
-                    .map_err(|e| e.to_string())?;
+                    .map_err(ApiError::from)?;
                 
                 new_prs.push(PersonalRecord {
                     id,
@@ -655,7 +655,7 @@ pub async fn check_and_update_prs(
             .bind(&exercise_name)
             .fetch_optional(pool)
             .await
-            .map_err(|e| e.to_string())?
+            .map_err(ApiError::from)?
             .flatten();
             
             if current_volume_pr.is_none() || volume > current_volume_pr.unwrap() {
@@ -670,12 +670,12 @@ pub async fn check_and_update_prs(
                 .bind(workout_id)
                 .execute(pool)
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(ApiError::from)?;
                 
                 let id: i64 = sqlx::query_scalar("SELECT last_insert_rowid()")
                     .fetch_one(pool)
                     .await
-                    .map_err(|e| e.to_string())?;
+                    .map_err(ApiError::from)?;
                 
                 new_prs.push(PersonalRecord {
                     id,
@@ -701,7 +701,7 @@ pub async fn check_and_update_prs(
             .bind(&exercise_name)
             .fetch_optional(pool)
             .await
-            .map_err(|e| e.to_string())?
+            .map_err(ApiError::from)?
             .flatten();
             
             if current_reps_pr.is_none() || (reps as f64) > current_reps_pr.unwrap() {
@@ -716,12 +716,12 @@ pub async fn check_and_update_prs(
                 .bind(workout_id)
                 .execute(pool)
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(ApiError::from)?;
                 
                 let id: i64 = sqlx::query_scalar("SELECT last_insert_rowid()")
                     .fetch_one(pool)
                     .await
-                    .map_err(|e| e.to_string())?;
+                    .map_err(ApiError::from)?;
                 
                 new_prs.push(PersonalRecord {
                     id,
@@ -743,7 +743,7 @@ pub async fn check_and_update_prs(
 // ============================================================================
 
 #[tauri::command]
-pub async fn get_achievements(state: State<'_, DbState>) -> Result<Vec<Achievement>, String> {
+pub async fn get_achievements(state: State<'_, DbState>) -> Result<Vec<Achievement>, ApiError> {
     let pool = &state.0;
     
     let rows = sqlx::query_as::<_, (i64, String, String, Option<String>, Option<String>, String, Option<String>)>(
@@ -756,7 +756,7 @@ pub async fn get_achievements(state: State<'_, DbState>) -> Result<Vec<Achieveme
     )
     .fetch_all(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
     
     let achievements = rows.into_iter().map(|(id, achievement_type, title, description, category, achieved_at, metadata)| {
         Achievement {
@@ -774,7 +774,7 @@ pub async fn get_achievements(state: State<'_, DbState>) -> Result<Vec<Achieveme
 }
 
 #[tauri::command]
-pub async fn check_achievements(state: State<'_, DbState>) -> Result<Vec<Achievement>, String> {
+pub async fn check_achievements(state: State<'_, DbState>) -> Result<Vec<Achievement>, ApiError> {
     let pool = &state.0;
     let mut new_achievements: Vec<Achievement> = Vec::new();
     
@@ -815,12 +815,12 @@ pub async fn check_achievements(state: State<'_, DbState>) -> Result<Vec<Achieve
                 .bind(&metadata)
                 .execute(pool)
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(ApiError::from)?;
                 
                 let id: i64 = sqlx::query_scalar("SELECT last_insert_rowid()")
                     .fetch_one(pool)
                     .await
-                    .map_err(|e| e.to_string())?;
+                    .map_err(ApiError::from)?;
                 
                 new_achievements.push(Achievement {
                     id,
@@ -873,12 +873,12 @@ pub async fn check_achievements(state: State<'_, DbState>) -> Result<Vec<Achieve
                 .bind(&metadata)
                 .execute(pool)
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(ApiError::from)?;
                 
                 let id: i64 = sqlx::query_scalar("SELECT last_insert_rowid()")
                     .fetch_one(pool)
                     .await
-                    .map_err(|e| e.to_string())?;
+                    .map_err(ApiError::from)?;
                 
                 new_achievements.push(Achievement {
                     id,
@@ -899,7 +899,7 @@ pub async fn check_achievements(state: State<'_, DbState>) -> Result<Vec<Achieve
     )
     .fetch_all(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
     
     let level_milestones = vec![5, 10, 15, 20];
     for (skill_name, level) in skill_levels {
@@ -934,12 +934,12 @@ pub async fn check_achievements(state: State<'_, DbState>) -> Result<Vec<Achieve
                     .bind(&metadata)
                     .execute(pool)
                     .await
-                    .map_err(|e| e.to_string())?;
+                    .map_err(ApiError::from)?;
                     
                     let id: i64 = sqlx::query_scalar("SELECT last_insert_rowid()")
                         .fetch_one(pool)
                         .await
-                        .map_err(|e| e.to_string())?;
+                        .map_err(ApiError::from)?;
                     
                     new_achievements.push(Achievement {
                         id,
@@ -989,12 +989,12 @@ pub async fn check_achievements(state: State<'_, DbState>) -> Result<Vec<Achieve
                 .bind(&metadata)
                 .execute(pool)
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(ApiError::from)?;
                 
                 let id: i64 = sqlx::query_scalar("SELECT last_insert_rowid()")
                     .fetch_one(pool)
                     .await
-                    .map_err(|e| e.to_string())?;
+                    .map_err(ApiError::from)?;
                 
                 new_achievements.push(Achievement {
                     id,

@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invoke as rawInvoke } from '@tauri-apps/api/core'
 import type {
   Achievement,
   AgentRecommendation,
@@ -33,6 +33,75 @@ import type {
   WorkoutTemplate,
   WorkoutTemplateExercise,
 } from '@/types'
+
+export type ApiErrorCode =
+  | 'validation'
+  | 'not_found'
+  | 'conflict'
+  | 'transient'
+  | 'internal'
+
+export type ApiError = {
+  code: ApiErrorCode
+  message: string
+  details?: unknown
+}
+
+const DEFAULT_ERROR_MESSAGE = 'Something went wrong. Please try again.'
+
+export function decodeApiError(error: unknown): ApiError {
+  if (error && typeof error === 'object') {
+    const candidate = error as { code?: unknown; message?: unknown; details?: unknown }
+    if (typeof candidate.code === 'string' && typeof candidate.message === 'string') {
+      return {
+        code: candidate.code as ApiErrorCode,
+        message: candidate.message,
+        details: candidate.details,
+      }
+    }
+  }
+
+  if (error instanceof Error) {
+    return {
+      code: 'internal',
+      message: error.message || DEFAULT_ERROR_MESSAGE,
+    }
+  }
+
+  return {
+    code: 'internal',
+    message: DEFAULT_ERROR_MESSAGE,
+  }
+}
+
+export function getApiErrorMessage(error: unknown): string {
+  const decoded = decodeApiError(error)
+  if (decoded.code === 'validation') {
+    return decoded.message
+  }
+
+  if (decoded.code === 'not_found') {
+    return decoded.message
+  }
+
+  if (decoded.code === 'conflict') {
+    return decoded.message
+  }
+
+  if (decoded.code === 'transient') {
+    return 'Temporary issue. Please try again.'
+  }
+
+  return decoded.message || DEFAULT_ERROR_MESSAGE
+}
+
+async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  try {
+    return await rawInvoke<T>(command, args)
+  } catch (error) {
+    throw decodeApiError(error)
+  }
+}
 
 export const tauri = {
   // Courses

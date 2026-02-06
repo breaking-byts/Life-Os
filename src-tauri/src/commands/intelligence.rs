@@ -9,6 +9,7 @@ use tauri::State;
 use crate::agent::{
     AgentRecommendation, AgentStatus, BigThreeGoal, IntelligenceAgent,
 };
+use crate::error::ApiError;
 use crate::ml::{RichContext, RichFeatureStore};
 use crate::DbState;
 
@@ -17,19 +18,23 @@ use crate::DbState;
 pub async fn get_agent_recommendations(
     state: State<'_, DbState>,
     count: Option<usize>,
-) -> Result<Vec<AgentRecommendation>, String> {
+) -> Result<Vec<AgentRecommendation>, ApiError> {
     let pool = &state.0;
     let n = count.unwrap_or(3);
-    IntelligenceAgent::get_recommendations(pool, n).await
+    IntelligenceAgent::get_recommendations(pool, n)
+        .await
+        .map_err(ApiError::internal)
 }
 
 /// Get the top recommendation
 #[tauri::command]
 pub async fn get_agent_recommendation(
     state: State<'_, DbState>,
-) -> Result<AgentRecommendation, String> {
+) -> Result<AgentRecommendation, ApiError> {
     let pool = &state.0;
-    IntelligenceAgent::get_recommendation(pool).await
+    IntelligenceAgent::get_recommendation(pool)
+        .await
+        .map_err(ApiError::internal)
 }
 
 /// Record feedback on a recommendation
@@ -41,7 +46,7 @@ pub async fn record_recommendation_feedback(
     alternative_chosen: Option<String>,
     feedback_score: Option<i32>,
     outcome_score: Option<f32>,
-) -> Result<(), String> {
+) -> Result<(), ApiError> {
     let pool = &state.0;
     IntelligenceAgent::record_feedback(
         pool,
@@ -52,6 +57,7 @@ pub async fn record_recommendation_feedback(
         outcome_score,
     )
     .await
+    .map_err(ApiError::internal)
 }
 
 /// Record a completed action for learning
@@ -62,31 +68,38 @@ pub async fn record_action_completed(
     description: String,
     outcome_score: f32,
     metadata: Option<serde_json::Value>,
-) -> Result<i64, String> {
+) -> Result<i64, ApiError> {
     let pool = &state.0;
     IntelligenceAgent::record_action_completed(pool, &action_type, &description, outcome_score, metadata)
         .await
+        .map_err(ApiError::internal)
 }
 
 /// Get agent status and statistics
 #[tauri::command]
-pub async fn get_agent_status(state: State<'_, DbState>) -> Result<AgentStatus, String> {
+pub async fn get_agent_status(state: State<'_, DbState>) -> Result<AgentStatus, ApiError> {
     let pool = &state.0;
-    IntelligenceAgent::get_status(pool).await
+    IntelligenceAgent::get_status(pool)
+        .await
+        .map_err(ApiError::internal)
 }
 
 /// Get current rich context (50+ features)
 #[tauri::command]
-pub async fn get_rich_context(state: State<'_, DbState>) -> Result<RichContext, String> {
+pub async fn get_rich_context(state: State<'_, DbState>) -> Result<RichContext, ApiError> {
     let pool = &state.0;
-    RichFeatureStore::capture_context(pool).await
+    RichFeatureStore::capture_context(pool)
+        .await
+        .map_err(ApiError::internal)
 }
 
 /// Get Big 3 goals for today
 #[tauri::command]
-pub async fn get_big_three(state: State<'_, DbState>) -> Result<Vec<BigThreeGoal>, String> {
+pub async fn get_big_three(state: State<'_, DbState>) -> Result<Vec<BigThreeGoal>, ApiError> {
     let pool = &state.0;
-    IntelligenceAgent::get_big_three(pool).await
+    IntelligenceAgent::get_big_three(pool)
+        .await
+        .map_err(ApiError::internal)
 }
 
 /// Set Big 3 goals for today
@@ -101,13 +114,15 @@ pub struct BigThreeInput {
 pub async fn set_big_three(
     state: State<'_, DbState>,
     goals: Vec<BigThreeInput>,
-) -> Result<(), String> {
+) -> Result<(), ApiError> {
     let pool = &state.0;
     let goals_tuple: Vec<_> = goals
         .into_iter()
         .map(|g| (g.title, g.description, g.category))
         .collect();
-    IntelligenceAgent::set_big_three(pool, goals_tuple).await
+    IntelligenceAgent::set_big_three(pool, goals_tuple)
+        .await
+        .map_err(ApiError::internal)
 }
 
 /// Complete a Big 3 goal
@@ -116,16 +131,20 @@ pub async fn complete_big_three(
     state: State<'_, DbState>,
     goal_id: i64,
     satisfaction: Option<i32>,
-) -> Result<(), String> {
+) -> Result<(), ApiError> {
     let pool = &state.0;
-    IntelligenceAgent::complete_big_three(pool, goal_id, satisfaction).await
+    IntelligenceAgent::complete_big_three(pool, goal_id, satisfaction)
+        .await
+        .map_err(ApiError::internal)
 }
 
 /// Run daily maintenance (reward updates, cleanup)
 #[tauri::command]
-pub async fn run_agent_maintenance(state: State<'_, DbState>) -> Result<(), String> {
+pub async fn run_agent_maintenance(state: State<'_, DbState>) -> Result<(), ApiError> {
     let pool = &state.0;
-    IntelligenceAgent::daily_maintenance(pool).await
+    IntelligenceAgent::daily_maintenance(pool)
+        .await
+        .map_err(ApiError::internal)
 }
 
 /// Get feature names for UI display
@@ -143,11 +162,14 @@ pub async fn search_similar_experiences(
     _state: State<'_, DbState>,
     query: String,
     limit: Option<usize>,
-) -> Result<Vec<SimilarExperience>, String> {
+) -> Result<Vec<SimilarExperience>, ApiError> {
     use crate::ml::SemanticMemory;
 
-    let memory = SemanticMemory::global().await?;
-    let results = memory.search_similar(&query, limit.unwrap_or(5), None).await?;
+    let memory = SemanticMemory::global().await.map_err(ApiError::internal)?;
+    let results = memory
+        .search_similar(&query, limit.unwrap_or(5), None)
+        .await
+        .map_err(ApiError::internal)?;
 
     Ok(results
         .into_iter()
@@ -178,13 +200,13 @@ pub async fn set_reward_weights(
     daily: f32,
     weekly: f32,
     monthly: f32,
-) -> Result<(), String> {
+) -> Result<(), ApiError> {
     let pool = &state.0;
     
     // Validate weights sum to ~1.0
     let total = immediate + daily + weekly + monthly;
     if (total - 1.0).abs() > 0.01 {
-        return Err("Weights must sum to 1.0".to_string());
+        return Err(ApiError::validation("Weights must sum to 1.0"));
     }
 
     let weights = serde_json::json!({
@@ -200,7 +222,7 @@ pub async fn set_reward_weights(
     .bind(weights.to_string())
     .execute(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     Ok(())
 }
@@ -210,11 +232,11 @@ pub async fn set_reward_weights(
 pub async fn set_exploration_rate(
     state: State<'_, DbState>,
     rate: f32,
-) -> Result<(), String> {
+) -> Result<(), ApiError> {
     let pool = &state.0;
     
     if rate < 0.0 || rate > 5.0 {
-        return Err("Exploration rate must be between 0 and 5".to_string());
+        return Err(ApiError::validation("Exploration rate must be between 0 and 5"));
     }
 
     sqlx::query(
@@ -223,7 +245,7 @@ pub async fn set_exploration_rate(
     .bind(rate.to_string())
     .execute(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     Ok(())
 }

@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::{DbState, models::exercise::ExerciseCache, services::wger};
+use crate::{DbState, error::ApiError, models::exercise::ExerciseCache, services::wger};
 
 fn normalize_exercise_name(name: &str) -> String {
     name.split_whitespace().collect::<Vec<_>>().join(" ").trim().to_string()
@@ -11,11 +11,11 @@ fn normalize_exercise_name(name: &str) -> String {
 pub async fn create_custom_exercise(
     state: State<'_, DbState>,
     name: String,
-) -> Result<ExerciseCache, String> {
+) -> Result<ExerciseCache, ApiError> {
     let pool = &state.0;
     let normalized = normalize_exercise_name(&name);
     if normalized.is_empty() {
-        return Err("Exercise name cannot be empty".to_string());
+        return Err(ApiError::validation("Exercise name cannot be empty"));
     }
 
     // Insert or return existing custom exercise with same (case-insensitive) name.
@@ -25,7 +25,7 @@ pub async fn create_custom_exercise(
     .bind(&normalized)
     .fetch_optional(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     if let Some(row) = existing {
         return Ok(row);
@@ -41,16 +41,16 @@ pub async fn create_custom_exercise(
     .bind(&normalized)
     .fetch_one(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     Ok(rec)
 }
 
 /// Fetch exercises from wger API and cache them locally
 #[tauri::command]
-pub async fn fetch_and_cache_exercises(state: State<'_, DbState>) -> Result<usize, String> {
+pub async fn fetch_and_cache_exercises(state: State<'_, DbState>) -> Result<usize, ApiError> {
     let pool = &state.0;
-    fetch_and_cache_internal(pool).await
+    fetch_and_cache_internal(pool).await.map_err(ApiError::from)
 }
 
 /// Search exercises in local cache (name-only), auto-fetches if cache is empty.
@@ -62,7 +62,7 @@ pub async fn fetch_and_cache_exercises(state: State<'_, DbState>) -> Result<usiz
 pub async fn search_exercises(
     state: State<'_, DbState>,
     query: String,
-) -> Result<Vec<ExerciseCache>, String> {
+) -> Result<Vec<ExerciseCache>, ApiError> {
     let pool = &state.0;
 
     let normalized_query = query.trim().to_lowercase();
@@ -74,7 +74,7 @@ pub async fn search_exercises(
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM exercises_cache")
         .fetch_one(pool)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(ApiError::from)?;
 
     if count == 0 {
         let pool_clone = pool.clone();
@@ -112,7 +112,7 @@ pub async fn search_exercises(
     .bind(&prefix)
     .fetch_all(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     if rows.len() >= 20 {
         return Ok(rows);
@@ -133,7 +133,7 @@ pub async fn search_exercises(
     .bind(remaining)
     .fetch_all(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     let mut combined = rows;
     combined.extend(extra);

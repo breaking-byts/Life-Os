@@ -9,6 +9,9 @@ mod agent;
 mod ml;
 mod services;
 mod utils;
+mod error;
+#[cfg(test)]
+mod error_test;
 
 use db::connection::establish_pool;
 use db::migrations::run_migrations;

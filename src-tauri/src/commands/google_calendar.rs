@@ -13,7 +13,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 use url::Url;
 
-use crate::{DbState, models::google_account::GoogleAccount};
+use crate::{DbState, error::ApiError, models::google_account::GoogleAccount};
 
 const GOOGLE_AUTH_BASE: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
@@ -160,7 +160,7 @@ struct GoogleExtendedPropertiesInsert {
 pub async fn set_google_client_id(
     state: State<'_, DbState>,
     client_id: String,
-) -> Result<bool, String> {
+) -> Result<bool, ApiError> {
     let pool = &state.0;
     let trimmed = client_id.trim().to_string();
     let stored: Option<String> = if trimmed.is_empty() { None } else { Some(trimmed) };
@@ -177,7 +177,7 @@ pub async fn set_google_client_id(
     .bind(stored)
     .execute(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     Ok(true)
 }
@@ -186,9 +186,9 @@ pub async fn set_google_client_id(
 pub async fn google_oauth_begin(
     state: State<'_, DbState>,
     google_state: State<'_, GoogleState>,
-) -> Result<GoogleAuthBeginResponse, String> {
+) -> Result<GoogleAuthBeginResponse, ApiError> {
     let client_id = get_google_client_id(&state.0).await?
-        .ok_or_else(|| "Google client ID not set".to_string())?;
+        .ok_or_else(|| ApiError::validation("Google client ID not set"))?;
 
     let code_verifier = generate_code_verifier();
     let code_challenge = code_challenge_from_verifier(&code_verifier);
@@ -196,8 +196,10 @@ pub async fn google_oauth_begin(
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
-        .map_err(|e| e.to_string())?;
-    let local_addr = listener.local_addr().map_err(|e| e.to_string())?;
+        .map_err(ApiError::from)?;
+    let local_addr = listener
+        .local_addr()
+        .map_err(|e| ApiError::internal(e.to_string()))?;
     let redirect_uri = format!("http://127.0.0.1:{}/callback", local_addr.port());
 
     let auth_url = format!(
@@ -256,32 +258,34 @@ pub async fn google_oauth_complete(
     state: State<'_, DbState>,
     google_state: State<'_, GoogleState>,
     callback_url: Option<String>,
-) -> Result<GoogleAccount, String> {
+) -> Result<GoogleAccount, ApiError> {
     let mut session_opt = google_state.oauth.lock().await;
-    let session = session_opt.clone().ok_or_else(|| "OAuth session not initialized".to_string())?;
+    let session = session_opt
+        .clone()
+        .ok_or_else(|| ApiError::validation("OAuth session not initialized"))?;
 
     let effective_callback = if let Some(url) = callback_url {
         url
     } else if let Some(url) = session.callback_url.clone() {
         url
     } else {
-        return Err("OAuth callback not received yet".to_string());
+        return Err(ApiError::validation("OAuth callback not received yet"));
     };
 
-    let parsed = Url::parse(&effective_callback).map_err(|e| e.to_string())?;
+    let parsed = Url::parse(&effective_callback).map_err(|e| ApiError::validation(e.to_string()))?;
     let code = parsed
         .query_pairs()
         .find(|(k, _)| k == "code")
         .map(|(_, v)| v.to_string())
-        .ok_or_else(|| "Missing code in callback URL".to_string())?;
+        .ok_or_else(|| ApiError::validation("Missing code in callback URL"))?;
     let returned_state = parsed
         .query_pairs()
         .find(|(k, _)| k == "state")
         .map(|(_, v)| v.to_string())
-        .ok_or_else(|| "Missing state in callback URL".to_string())?;
+        .ok_or_else(|| ApiError::validation("Missing state in callback URL"))?;
 
     if returned_state != session.state {
-        return Err("OAuth state mismatch".to_string());
+        return Err(ApiError::validation("OAuth state mismatch"));
     }
 
     let client = Client::new();
@@ -297,7 +301,7 @@ pub async fn google_oauth_complete(
             ])
             .send()
             .await
-            .map_err(|e| e.to_string())?,
+            .map_err(ApiError::from)?,
     )
     .await?;
 
@@ -321,14 +325,14 @@ pub async fn google_oauth_complete(
             .bearer_auth(&token_res.access_token)
             .send()
             .await
-            .map_err(|e| e.to_string())?,
+            .map_err(ApiError::from)?,
     )
     .await?;
 
     let account = upsert_google_account(&state.0, &user_info).await?;
 
     // Persist the client id used for this session
-    let _ = set_google_client_id(state, session.client_id.clone()).await;
+    let _ = set_google_client_id(state.clone(), session.client_id.clone()).await;
 
     // Initialize calendar prefs row if missing
     sqlx::query(
@@ -338,7 +342,7 @@ pub async fn google_oauth_complete(
     )
     .execute(&state.0)
     .await
-    .ok();
+    .map_err(ApiError::from)?;
 
     // Clear session after completion
     *session_opt = None;
@@ -350,9 +354,9 @@ pub async fn google_oauth_complete(
 pub async fn google_sync_now(
     state: State<'_, DbState>,
     google_state: State<'_, GoogleState>,
-) -> Result<bool, String> {
+) -> Result<bool, ApiError> {
     let client_id = get_google_client_id(&state.0).await?
-        .ok_or_else(|| "Google client ID not set".to_string())?;
+        .ok_or_else(|| ApiError::validation("Google client ID not set"))?;
 
     let access_token = ensure_access_token(&google_state, &client_id).await?;
     let client = Client::new();
@@ -363,7 +367,7 @@ pub async fn google_sync_now(
             .bearer_auth(&access_token)
             .send()
             .await
-            .map_err(|e| e.to_string())?,
+            .map_err(ApiError::from)?,
     )
     .await?;
 
@@ -388,13 +392,13 @@ pub async fn google_sync_now(
     sqlx::query("UPDATE google_calendar_prefs SET updated_at = datetime('now') WHERE user_id = 1")
         .execute(&state.0)
         .await
-        .ok();
+        .map_err(ApiError::from)?;
 
     Ok(true)
 }
 
 #[tauri::command]
-pub async fn get_google_sync_status(state: State<'_, DbState>) -> Result<GoogleSyncStatus, String> {
+pub async fn get_google_sync_status(state: State<'_, DbState>) -> Result<GoogleSyncStatus, ApiError> {
     let pool = &state.0;
 
     let client_id = get_google_client_id(pool).await?;
@@ -403,14 +407,14 @@ pub async fn get_google_sync_status(state: State<'_, DbState>) -> Result<GoogleS
     )
     .fetch_optional(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     let last_sync = sqlx::query_scalar::<_, Option<String>>(
         "SELECT updated_at FROM google_calendar_prefs WHERE user_id = 1",
     )
     .fetch_optional(pool)
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(ApiError::from)?
     .flatten();
 
     Ok(GoogleSyncStatus {
@@ -423,38 +427,38 @@ pub async fn get_google_sync_status(state: State<'_, DbState>) -> Result<GoogleS
 }
 
 #[tauri::command]
-pub async fn disconnect_google(state: State<'_, DbState>) -> Result<bool, String> {
+pub async fn disconnect_google(state: State<'_, DbState>) -> Result<bool, ApiError> {
     let pool = &state.0;
 
     sqlx::query("DELETE FROM google_accounts WHERE user_id = 1")
         .execute(pool)
         .await
-        .ok();
+        .map_err(ApiError::from)?;
     sqlx::query("DELETE FROM google_calendar_prefs WHERE user_id = 1")
         .execute(pool)
         .await
-        .ok();
+        .map_err(ApiError::from)?;
     sqlx::query("DELETE FROM google_event_links")
         .execute(pool)
         .await
-        .ok();
+        .map_err(ApiError::from)?;
     sqlx::query("DELETE FROM google_sync_state")
         .execute(pool)
         .await
-        .ok();
+        .map_err(ApiError::from)?;
 
     clear_refresh_token()?;
 
     Ok(true)
 }
 
-async fn get_google_client_id(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<Option<String>, String> {
+async fn get_google_client_id(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<Option<String>, ApiError> {
     let row = sqlx::query_scalar::<_, Option<String>>(
         "SELECT google_client_id FROM user_settings WHERE user_id = 1",
     )
     .fetch_optional(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     Ok(row.flatten())
 }
@@ -478,36 +482,37 @@ fn random_token(len: usize) -> String {
         .collect()
 }
 
-fn keyring_entry() -> Result<Entry, String> {
-    Entry::new("life-os", "google_refresh_token").map_err(|e| e.to_string())
+fn keyring_entry() -> Result<Entry, ApiError> {
+    Entry::new("life-os", "google_refresh_token")
+        .map_err(|e| ApiError::internal(e.to_string()))
 }
 
-fn store_refresh_token(token: &str) -> Result<(), String> {
+fn store_refresh_token(token: &str) -> Result<(), ApiError> {
     keyring_entry()?
         .set_password(token)
-        .map_err(|e| e.to_string())
+        .map_err(|e| ApiError::internal(e.to_string()))
 }
 
-fn load_refresh_token() -> Result<Option<String>, String> {
+fn load_refresh_token() -> Result<Option<String>, ApiError> {
     match keyring_entry()?.get_password() {
         Ok(token) => Ok(Some(token)),
         Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(e.to_string()),
+        Err(e) => Err(ApiError::internal(e.to_string())),
     }
 }
 
-fn clear_refresh_token() -> Result<(), String> {
+fn clear_refresh_token() -> Result<(), ApiError> {
     match keyring_entry()?.delete_credential() {
         Ok(_) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(e.to_string()),
+        Err(e) => Err(ApiError::internal(e.to_string())),
     }
 }
 
 async fn ensure_access_token(
     google_state: &GoogleState,
     client_id: &str,
-) -> Result<String, String> {
+) -> Result<String, ApiError> {
     let now = Utc::now();
     if let Some(token) = google_state.token.lock().await.clone() {
         if token.expires_at > now + Duration::seconds(TOKEN_EXPIRY_BUFFER_SECONDS) {
@@ -515,7 +520,8 @@ async fn ensure_access_token(
         }
     }
 
-    let refresh_token = load_refresh_token()?.ok_or_else(|| "Missing refresh token".to_string())?;
+    let refresh_token = load_refresh_token()?
+        .ok_or_else(|| ApiError::validation("Missing refresh token"))?;
     let client = Client::new();
     let token_res = parse_json_response::<GoogleTokenResponse>(
         client
@@ -527,7 +533,7 @@ async fn ensure_access_token(
             ])
             .send()
             .await
-            .map_err(|e| e.to_string())?,
+            .map_err(ApiError::from)?,
     )
     .await?;
 
@@ -545,7 +551,7 @@ async fn ensure_access_token(
 async fn upsert_google_account(
     pool: &sqlx::Pool<sqlx::Sqlite>,
     user_info: &GoogleUserInfo,
-) -> Result<GoogleAccount, String> {
+) -> Result<GoogleAccount, ApiError> {
     let rec = sqlx::query_as::<_, GoogleAccount>(
         r#"INSERT INTO google_accounts (user_id, google_user_id, email, connected_at)
            VALUES (1, ?, ?, datetime('now'))
@@ -558,7 +564,7 @@ async fn upsert_google_account(
     .bind(&user_info.email)
     .fetch_one(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     Ok(rec)
 }
@@ -577,7 +583,7 @@ async fn fetch_events(
     calendar_id: &str,
     time_min: &str,
     time_max: &str,
-) -> Result<Vec<GoogleEvent>, String> {
+) -> Result<Vec<GoogleEvent>, ApiError> {
     let url = format!(
         "{}/calendars/{}/events",
         GOOGLE_CALENDAR_API,
@@ -602,7 +608,7 @@ async fn fetch_events(
         }
 
         let res = parse_json_response::<GoogleEventList>(
-            req.send().await.map_err(|e| e.to_string())?,
+            req.send().await.map_err(ApiError::from)?,
         )
         .await?;
 
@@ -622,13 +628,13 @@ async fn ensure_life_os_plan_calendar(
     client: &Client,
     access_token: &str,
     calendars: &[GoogleCalendarListItem],
-) -> Result<String, String> {
+) -> Result<String, ApiError> {
     let existing_pref = sqlx::query_scalar::<_, Option<String>>(
         "SELECT export_calendar_id FROM google_calendar_prefs WHERE user_id = 1",
     )
     .fetch_optional(pool)
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(ApiError::from)?
     .flatten();
 
     if let Some(id) = existing_pref {
@@ -646,7 +652,7 @@ async fn ensure_life_os_plan_calendar(
         .bind(&found.id)
         .execute(pool)
         .await
-        .ok();
+        .map_err(ApiError::from)?;
         return Ok(found.id.clone());
     }
 
@@ -661,7 +667,7 @@ async fn ensure_life_os_plan_calendar(
             }))
             .send()
             .await
-            .map_err(|e| e.to_string())?,
+            .map_err(ApiError::from)?,
     )
     .await?;
 
@@ -675,7 +681,7 @@ async fn ensure_life_os_plan_calendar(
     .bind(&created.id)
     .execute(pool)
     .await
-    .ok();
+    .map_err(ApiError::from)?;
 
     Ok(created.id)
 }
@@ -684,7 +690,7 @@ async fn sync_external_calendar(
     pool: &sqlx::Pool<sqlx::Sqlite>,
     calendar_id: &str,
     events: Vec<GoogleEvent>,
-) -> Result<(), String> {
+) -> Result<(), ApiError> {
     for event in events {
         if event.status.as_deref() == Some("cancelled") {
             delete_linked_event(pool, calendar_id, &event.id, "calendar_event").await?;
@@ -704,7 +710,7 @@ async fn sync_external_calendar(
         .bind(&event.id)
         .fetch_optional(pool)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(ApiError::from)?;
 
         if let Some(existing) = link {
             sqlx::query(
@@ -716,7 +722,7 @@ async fn sync_external_calendar(
             .bind(existing.local_id)
             .execute(pool)
             .await
-            .ok();
+            .map_err(ApiError::from)?;
 
             update_link(pool, existing.id, event.etag.as_deref()).await?;
         } else {
@@ -730,7 +736,7 @@ async fn sync_external_calendar(
             .bind(&end_at)
             .fetch_one(pool)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(ApiError::from)?;
 
             sqlx::query(
                 r#"INSERT INTO google_event_links (local_type, local_id, google_calendar_id, google_event_id, etag, last_synced_at)
@@ -742,7 +748,7 @@ async fn sync_external_calendar(
             .bind(&event.etag)
             .execute(pool)
             .await
-            .ok();
+            .map_err(ApiError::from)?;
         }
     }
 
@@ -757,7 +763,7 @@ async fn sync_plan_calendar(
     date_min: &str,
     date_max: &str,
     events: Vec<GoogleEvent>,
-) -> Result<(), String> {
+) -> Result<(), ApiError> {
     let mut google_events_by_id: HashMap<String, GoogleEvent> = HashMap::new();
     for event in events.into_iter() {
         if event.status.as_deref() == Some("cancelled") {
@@ -796,7 +802,7 @@ async fn sync_plan_calendar(
     .bind(date_max)
     .fetch_all(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     for (id, start_at, end_at, title, status, block_type) in blocks {
         let event_title = title.unwrap_or_else(|| block_type.unwrap_or_else(|| "Planned block".to_string()));
@@ -806,7 +812,7 @@ async fn sync_plan_calendar(
         .bind(id)
         .fetch_optional(pool)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(ApiError::from)?;
 
         if let Some(existing) = link {
             if let Some(google_event) = google_events_by_id.get(&existing.google_event_id) {
@@ -850,7 +856,7 @@ async fn sync_plan_calendar(
                 .bind(existing.id)
                 .execute(pool)
                 .await
-                .ok();
+                .map_err(ApiError::from)?;
             }
         } else {
             let google_event_id = insert_google_event(
@@ -873,7 +879,7 @@ async fn sync_plan_calendar(
             .bind(&google_event_id)
             .execute(pool)
             .await
-            .ok();
+            .map_err(ApiError::from)?;
         }
 
         if status.as_deref() == Some("locked") {
@@ -908,14 +914,14 @@ async fn apply_google_update_to_plan_block(
     title: &str,
     start_at: &str,
     end_at: &str,
-) -> Result<bool, String> {
+) -> Result<bool, ApiError> {
     let existing = sqlx::query_as::<_, (String, String, Option<String>)>(
         "SELECT start_at, end_at, title FROM week_plan_blocks WHERE id = ?",
     )
     .bind(local_id)
     .fetch_optional(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     if let Some((curr_start, curr_end, curr_title)) = existing {
         if curr_start == start_at && curr_end == end_at && curr_title.as_deref() == Some(title) {
@@ -933,7 +939,7 @@ async fn apply_google_update_to_plan_block(
         .bind(local_id)
         .execute(pool)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(ApiError::from)?;
 
         Ok(true)
     } else {
@@ -950,7 +956,7 @@ async fn apply_google_update_to_plan_block(
         .bind(title)
         .execute(pool)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(ApiError::from)?;
         Ok(true)
     }
 }
@@ -997,7 +1003,7 @@ async fn delete_linked_event(
     calendar_id: &str,
     google_event_id: &str,
     local_type: &str,
-) -> Result<(), String> {
+) -> Result<(), ApiError> {
     let link = sqlx::query_as::<_, crate::models::google_event_link::GoogleEventLink>(
         "SELECT * FROM google_event_links WHERE google_calendar_id = ? AND google_event_id = ? AND local_type = ?",
     )
@@ -1006,33 +1012,33 @@ async fn delete_linked_event(
     .bind(local_type)
     .fetch_optional(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
-    if let Some(existing) = link {
-        if local_type == "calendar_event" {
-            sqlx::query("DELETE FROM calendar_events WHERE id = ?")
-                .bind(existing.local_id)
+        if let Some(existing) = link {
+            if local_type == "calendar_event" {
+                sqlx::query("DELETE FROM calendar_events WHERE id = ?")
+                    .bind(existing.local_id)
+                    .execute(pool)
+                    .await
+                    .map_err(ApiError::from)?;
+            }
+            sqlx::query("DELETE FROM google_event_links WHERE id = ?")
+                .bind(existing.id)
                 .execute(pool)
                 .await
-                .ok();
+                .map_err(ApiError::from)?;
         }
-        sqlx::query("DELETE FROM google_event_links WHERE id = ?")
-            .bind(existing.id)
-            .execute(pool)
-            .await
-            .ok();
-    }
 
     Ok(())
 }
 
-async fn update_link(pool: &sqlx::Pool<sqlx::Sqlite>, link_id: i64, etag: Option<&str>) -> Result<(), String> {
+async fn update_link(pool: &sqlx::Pool<sqlx::Sqlite>, link_id: i64, etag: Option<&str>) -> Result<(), ApiError> {
     sqlx::query("UPDATE google_event_links SET etag = ?, last_synced_at = datetime('now') WHERE id = ?")
         .bind(etag)
         .bind(link_id)
         .execute(pool)
         .await
-        .ok();
+        .map_err(ApiError::from)?;
     Ok(())
 }
 
@@ -1042,7 +1048,7 @@ async fn upsert_plan_link(
     calendar_id: &str,
     google_event_id: &str,
     etag: Option<&str>,
-) -> Result<(), String> {
+) -> Result<(), ApiError> {
     sqlx::query(
         r#"INSERT INTO google_event_links (local_type, local_id, google_calendar_id, google_event_id, etag, last_synced_at)
            VALUES ('week_plan_block', ?, ?, ?, ?, datetime('now'))
@@ -1058,7 +1064,7 @@ async fn upsert_plan_link(
     .bind(etag)
     .execute(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     Ok(())
 }
@@ -1071,7 +1077,7 @@ async fn insert_google_event(
     start_at: &str,
     end_at: &str,
     local_id: i64,
-) -> Result<String, String> {
+) -> Result<String, ApiError> {
     let mut private_props = HashMap::new();
     private_props.insert("lifeos_id".to_string(), format!("wpb_{}", local_id));
     private_props.insert("lifeos_type".to_string(), "week_plan_block".to_string());
@@ -1100,7 +1106,7 @@ async fn insert_google_event(
             .json(&payload)
             .send()
             .await
-            .map_err(|e| e.to_string())?,
+            .map_err(ApiError::from)?,
     )
     .await?;
 
@@ -1116,7 +1122,7 @@ async fn patch_google_event(
     start_at: &str,
     end_at: &str,
     local_id: i64,
-) -> Result<(), String> {
+) -> Result<(), ApiError> {
     let mut private_props = HashMap::new();
     private_props.insert("lifeos_id".to_string(), format!("wpb_{}", local_id));
     private_props.insert("lifeos_type".to_string(), "week_plan_block".to_string());
@@ -1146,20 +1152,25 @@ async fn patch_google_event(
             .json(&payload)
             .send()
             .await
-            .map_err(|e| e.to_string())?,
+            .map_err(ApiError::from)?,
     )
     .await?;
 
     Ok(())
 }
 
-async fn parse_json_response<T: DeserializeOwned>(res: reqwest::Response) -> Result<T, String> {
+async fn parse_json_response<T: DeserializeOwned>(res: reqwest::Response) -> Result<T, ApiError> {
     let status = res.status();
-    let body = res.text().await.map_err(|e| e.to_string())?;
+    let body = res.text().await.map_err(ApiError::from)?;
     if !status.is_success() {
-        return Err(format!("Google API error {}: {}", status, body));
+        return Err(ApiError::internal(format!(
+            "Google API error {}: {}",
+            status, body
+        )));
     }
-    serde_json::from_str::<T>(&body).map_err(|e| format!("error decoding response body: {e}; body: {body}"))
+    serde_json::from_str::<T>(&body).map_err(|e| {
+        ApiError::internal(format!("error decoding response body: {e}; body: {body}"))
+    })
 }
 
 fn normalize_datetime(value: &str) -> String {
