@@ -28,13 +28,16 @@ pub fn parse_datetime_to_rfc3339(value: &str) -> Option<String> {
     }
 
     if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S") {
-        let dt = chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(naive, chrono::Utc);
-        return Some(dt.to_rfc3339());
+        if let Some(local) = chrono::Local.from_local_datetime(&naive).single() {
+            return Some(local.to_rfc3339());
+        }
     }
 
     if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M") {
-        let dt = chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(naive, chrono::Utc);
-        return Some(dt.to_rfc3339());
+        if let Some(local) = chrono::Local.from_local_datetime(&naive).single() {
+            return Some(local.to_rfc3339());
+        }
+    }
     }
 
     if let Ok(date) = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d") {
