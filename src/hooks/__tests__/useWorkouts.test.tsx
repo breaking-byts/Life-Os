@@ -171,7 +171,7 @@ describe('useWorkouts', () => {
                 expect(result.current.workoutsQuery.isLoading).toBe(false)
             })
 
-            expect(mockedInvoke).toHaveBeenCalledWith('get_workouts')
+            expect(mockedInvoke).toHaveBeenCalledWith('get_workouts', undefined)
             expect(result.current.workoutsQuery.data).toEqual(mockWorkouts)
         })
 
@@ -453,7 +453,7 @@ describe('usePersonalRecords', () => {
             expect(result.current.isLoading).toBe(false)
         })
 
-        expect(mockedInvoke).toHaveBeenCalledWith('get_personal_records')
+        expect(mockedInvoke).toHaveBeenCalledWith('get_personal_records', undefined)
         expect(result.current.data).toEqual(mockPersonalRecords)
     })
 })
@@ -475,7 +475,7 @@ describe('useWorkoutTemplates', () => {
                 expect(result.current.templatesQuery.isLoading).toBe(false)
             })
 
-            expect(mockedInvoke).toHaveBeenCalledWith('get_workout_templates')
+            expect(mockedInvoke).toHaveBeenCalledWith('get_workout_templates', undefined)
             expect(result.current.templatesQuery.data).toEqual(mockTemplates)
         })
     })
