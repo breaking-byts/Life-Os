@@ -22,6 +22,11 @@ describe('tauri error decoding', () => {
     expect(getApiErrorMessage(error)).toBe('Temporary issue. Please try again.')
   })
 
+  it('returns the default message for internal errors', () => {
+    const error = { code: 'internal', message: 'Unexpected failure' }
+    expect(getApiErrorMessage(error)).toBe('Something went wrong. Please try again.')
+  })
+
   it('falls back to a generic message for unknown errors', () => {
     expect(getApiErrorMessage(null)).toBe('Something went wrong. Please try again.')
   })

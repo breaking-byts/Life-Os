@@ -92,6 +92,10 @@ export function getApiErrorMessage(error: unknown): string {
     return 'Temporary issue. Please try again.'
   }
 
+  if (decoded.code === 'internal') {
+    return DEFAULT_ERROR_MESSAGE
+  }
+
   return decoded.message || DEFAULT_ERROR_MESSAGE
 }
 
