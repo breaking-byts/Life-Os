@@ -1,3 +1,5 @@
+use chrono::TimeZone;
+
 pub fn is_valid_time(time: &str) -> bool {
     if time.len() != 5 {
         return false;
@@ -38,12 +40,12 @@ pub fn parse_datetime_to_rfc3339(value: &str) -> Option<String> {
             return Some(local.to_rfc3339());
         }
     }
-    }
 
     if let Ok(date) = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d") {
         let naive = date.and_hms_opt(0, 0, 0)?;
-        let dt = chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(naive, chrono::Utc);
-        return Some(dt.to_rfc3339());
+        if let Some(local) = chrono::Local.from_local_datetime(&naive).single() {
+            return Some(local.to_rfc3339());
+        }
     }
 
     None
@@ -52,6 +54,7 @@ pub fn parse_datetime_to_rfc3339(value: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{is_valid_time, parse_datetime_to_rfc3339};
+    use chrono::TimeZone;
 
     #[test]
     fn rejects_invalid_times() {
@@ -75,5 +78,36 @@ mod tests {
     fn parses_rfc3339_and_naive_datetime() {
         let parsed = parse_datetime_to_rfc3339("2026-02-07T09:30:00").unwrap();
         assert!(parsed.starts_with("2026-02-07T09:30:00"));
+    }
+
+    #[test]
+    fn parses_naive_datetime_as_local_time() {
+        let input = "2026-02-07T09:30:00";
+        let naive = chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%dT%H:%M:%S").unwrap();
+        let expected = chrono::Local
+            .from_local_datetime(&naive)
+            .single()
+            .expect("expected local time")
+            .to_rfc3339();
+
+        let parsed = parse_datetime_to_rfc3339(input).unwrap();
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn parses_date_as_local_midnight() {
+        let input = "2026-02-07";
+        let naive = chrono::NaiveDate::parse_from_str(input, "%Y-%m-%d")
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        let expected = chrono::Local
+            .from_local_datetime(&naive)
+            .single()
+            .expect("expected local time")
+            .to_rfc3339();
+
+        let parsed = parse_datetime_to_rfc3339(input).unwrap();
+        assert_eq!(parsed, expected);
     }
 }
