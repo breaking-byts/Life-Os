@@ -4,6 +4,11 @@ import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 
 import appCss from '../styles.css?url'
 import { tauri } from '@/lib/tauri'
+import {
+  clearGoogleSyncFailures,
+  getGoogleSyncBackoffState,
+  recordGoogleSyncFailure,
+} from '@/lib/googleSyncBackoff'
 
 export const Route = createRootRoute({
   head: () => ({
@@ -57,11 +62,20 @@ function RootDocument({ children }: { children: React.ReactNode }) {
     let intervalId: number | undefined
 
     const syncGoogle = async () => {
+      const { shouldSkip, backoffMs, failureCount } = getGoogleSyncBackoffState()
+      if (shouldSkip) {
+        console.info(
+          `Skipping Google sync. Backoff ${backoffMs}ms after ${failureCount} failures.`,
+        )
+        return
+      }
       try {
         const status = await tauri.getGoogleSyncStatus()
         if (!status.connected) return
         await tauri.googleSyncNow()
+        clearGoogleSyncFailures()
       } catch (err) {
+        recordGoogleSyncFailure()
         console.warn('Google sync failed:', err)
       }
     }
