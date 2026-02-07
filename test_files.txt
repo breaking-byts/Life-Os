@@ -1,0 +1,5 @@
+src/hooks/__tests__/useIntelligence.test.tsx
+src/hooks/__tests__/useTimer.test.ts
+src/hooks/__tests__/useWorkouts.test.tsx
+src/lib/__tests__/pomodoroPersistence.test.ts
+src/lib/__tests__/time.test.ts
