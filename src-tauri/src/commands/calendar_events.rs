@@ -1,5 +1,13 @@
 use tauri::State;
-use crate::{DbState, error::ApiError, models::calendar_event::CalendarEvent, utils::is_valid_time};
+use crate::{
+    DbState,
+    error::ApiError,
+    models::calendar_event::CalendarEvent,
+    utils::{is_valid_time, parse_datetime_to_rfc3339},
+};
+
+#[cfg(test)]
+use sqlx::sqlite::SqlitePoolOptions;
 
 #[derive(Debug, serde::Deserialize)]
 pub struct CalendarEventInput {
@@ -33,7 +41,13 @@ pub async fn create_calendar_event(
     state: State<'_, DbState>,
     data: CalendarEventInput,
 ) -> Result<CalendarEvent, ApiError> {
-    let pool = &state.0;
+    create_calendar_event_for_test(&state.0, data).await
+}
+
+async fn create_calendar_event_for_test(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    data: CalendarEventInput,
+) -> Result<CalendarEvent, ApiError> {
 
     // Validate: either (rrule + start_time + end_time) OR (start_at + end_at)
     let has_recurring = data.rrule.is_some() && data.start_time.is_some() && data.end_time.is_some();
@@ -68,6 +82,17 @@ pub async fn create_calendar_event(
         }
     }
 
+    let normalized_start_at = data
+        .start_at
+        .as_deref()
+        .and_then(parse_datetime_to_rfc3339)
+        .or_else(|| data.start_at.clone());
+    let normalized_end_at = data
+        .end_at
+        .as_deref()
+        .and_then(parse_datetime_to_rfc3339)
+        .or_else(|| data.end_at.clone());
+
     let user_id = data.user_id.unwrap_or(1);
     let category = data.category.unwrap_or_else(|| "general".to_string());
 
@@ -78,8 +103,8 @@ pub async fn create_calendar_event(
     )
     .bind(user_id)
     .bind(&data.title)
-    .bind(&data.start_at)
-    .bind(&data.end_at)
+    .bind(&normalized_start_at)
+    .bind(&normalized_end_at)
     .bind(&data.rrule)
     .bind(&data.start_time)
     .bind(&data.end_time)
@@ -151,7 +176,14 @@ pub async fn update_calendar_event(
     id: i64,
     data: CalendarEventInput,
 ) -> Result<CalendarEvent, ApiError> {
-    let pool = &state.0;
+    update_calendar_event_for_test(&state.0, id, data).await
+}
+
+async fn update_calendar_event_for_test(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    id: i64,
+    data: CalendarEventInput,
+) -> Result<CalendarEvent, ApiError> {
 
     // Validate time format if provided
     if let Some(ref start_time) = data.start_time {
@@ -176,6 +208,17 @@ pub async fn update_calendar_event(
         }
     }
 
+    let normalized_start_at = data
+        .start_at
+        .as_deref()
+        .and_then(parse_datetime_to_rfc3339)
+        .or_else(|| data.start_at.clone());
+    let normalized_end_at = data
+        .end_at
+        .as_deref()
+        .and_then(parse_datetime_to_rfc3339)
+        .or_else(|| data.end_at.clone());
+
     let rec = sqlx::query_as::<_, CalendarEvent>(
         r#"UPDATE calendar_events
            SET user_id = COALESCE(?, user_id),
@@ -195,8 +238,8 @@ pub async fn update_calendar_event(
     )
     .bind(&data.user_id)
     .bind(&data.title)
-    .bind(&data.start_at)
-    .bind(&data.end_at)
+    .bind(&normalized_start_at)
+    .bind(&normalized_end_at)
     .bind(&data.rrule)
     .bind(&data.start_time)
     .bind(&data.end_time)
@@ -237,4 +280,57 @@ pub async fn delete_calendar_event(
     }
 
     Ok(true)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn setup_db() -> sqlx::Pool<sqlx::Sqlite> {
+        use sqlx::sqlite::SqliteConnectOptions;
+        use std::str::FromStr;
+
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .foreign_keys(false);
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("Failed to connect to in-memory DB");
+
+        crate::db::migrations::run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
+
+        pool
+    }
+
+    #[tokio::test]
+    async fn calendar_event_input_normalizes_rfc3339() {
+        let pool = setup_db().await;
+
+        let input = CalendarEventInput {
+            user_id: Some(1),
+            title: "Normalized Event".to_string(),
+            start_at: Some("2026-02-07T09:30:00".to_string()),
+            end_at: Some("2026-02-07T10:30:00".to_string()),
+            rrule: None,
+            start_time: None,
+            end_time: None,
+            category: Some("busy".to_string()),
+            domain: None,
+            linked_id: None,
+            locked: None,
+            notes: None,
+        };
+
+        let created = create_calendar_event_for_test(&pool, input).await.unwrap();
+
+        let start_at = created.start_at.expect("start_at missing");
+        let end_at = created.end_at.expect("end_at missing");
+
+        assert!(start_at.contains('Z') || start_at.contains('+'));
+        assert!(end_at.contains('Z') || end_at.contains('+'));
+    }
 }
