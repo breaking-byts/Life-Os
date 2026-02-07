@@ -103,7 +103,7 @@ impl IntelligenceAgent {
         let context = RichFeatureStore::capture_context(pool).await?;
 
         // Save context snapshot
-        let _ = RichFeatureStore::save_snapshot(pool, &context).await;
+        let context_id = RichFeatureStore::save_snapshot(pool, &context).await.ok();
 
         // Get similar past experiences from semantic memory
         let similar_experiences = Self::get_similar_experiences(&context).await.unwrap_or_default();
@@ -156,7 +156,6 @@ impl IntelligenceAgent {
                 .collect();
 
             // Record recommendation
-            let context_id = RichFeatureStore::save_snapshot(pool, &context).await.ok();
             let rec_id = Self::record_recommendation(
                 pool,
                 &selection.action.name,

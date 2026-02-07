@@ -11,6 +11,9 @@
 pub mod insights;
 pub mod intelligence;
 
+#[cfg(test)]
+mod intelligence_test;
+
 // Re-export the main intelligence agent
 pub use intelligence::{
     IntelligenceAgent, 
