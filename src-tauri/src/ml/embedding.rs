@@ -46,27 +46,30 @@ mod test_hooks {
     pub(super) fn set_test_global_init_hook(
         hook: fn() -> Result<Arc<EmbeddingService>, String>,
     ) {
-        if let Ok(mut hook_slot) = TEST_GLOBAL_INIT_HOOK.lock() {
-            *hook_slot = Some(hook);
-        }
+        let mut hook_slot = TEST_GLOBAL_INIT_HOOK
+            .lock()
+            .expect("TEST_GLOBAL_INIT_HOOK mutex poisoned");
+        *hook_slot = Some(hook);
     }
 
     pub(super) struct TestGlobalInitHookGuard;
 
     impl Drop for TestGlobalInitHookGuard {
         fn drop(&mut self) {
-            if let Ok(mut hook_slot) = TEST_GLOBAL_INIT_HOOK.lock() {
-                *hook_slot = None;
-            }
+            let mut hook_slot = TEST_GLOBAL_INIT_HOOK
+                .lock()
+                .expect("TEST_GLOBAL_INIT_HOOK mutex poisoned");
+            *hook_slot = None;
         }
     }
 
     pub(super) fn scoped_test_global_init_hook(
         hook: fn() -> Result<Arc<EmbeddingService>, String>,
     ) -> TestGlobalInitHookGuard {
-        if let Ok(mut hook_slot) = TEST_GLOBAL_INIT_HOOK.lock() {
-            *hook_slot = Some(hook);
-        }
+        let mut hook_slot = TEST_GLOBAL_INIT_HOOK
+            .lock()
+            .expect("TEST_GLOBAL_INIT_HOOK mutex poisoned");
+        *hook_slot = Some(hook);
         TestGlobalInitHookGuard
     }
 
@@ -95,7 +98,8 @@ where
         .await
         .map_err(|_| "Embedding task queue closed".to_string())?;
     let handle = tauri::async_runtime::spawn_blocking(move || {
-        let _permit = permit;
+        // Keep the permit alive for the entire blocking task.
+        let permit = permit;
         let result = {
             #[cfg(test)]
             {
@@ -106,6 +110,7 @@ where
                 task()
             }
         };
+        drop(permit);
         result
     });
     handle
@@ -123,7 +128,10 @@ impl EmbeddingService {
     /// Get or initialize the global embedding service
     pub fn global() -> Result<Arc<EmbeddingService>, String> {
         #[cfg(test)]
-        if let Ok(hook_slot) = test_hooks::TEST_GLOBAL_INIT_HOOK.lock() {
+        {
+            let hook_slot = test_hooks::TEST_GLOBAL_INIT_HOOK
+                .lock()
+                .expect("TEST_GLOBAL_INIT_HOOK mutex poisoned");
             if let Some(hook) = *hook_slot {
                 return hook();
             }
@@ -451,5 +459,23 @@ mod tests {
             CALLED_IN_BLOCKING.load(Ordering::SeqCst),
             "expected EmbeddingService::global to run inside spawn_blocking"
         );
+    }
+
+    #[test]
+    fn embedding_hook_poison_panics() {
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = test_hooks::TEST_GLOBAL_INIT_HOOK
+                .lock()
+                .expect("TEST_GLOBAL_INIT_HOOK mutex poisoned");
+            panic!("poison hook mutex");
+        });
+
+        let result = std::panic::catch_unwind(|| {
+            let _guard = test_hooks::scoped_test_global_init_hook(|| {
+                Err("should not reach hook".to_string())
+            });
+        });
+
+        assert!(result.is_err(), "expected poisoned mutex to panic");
     }
 }
