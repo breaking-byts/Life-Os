@@ -54,7 +54,7 @@ pub struct ExerciseCache {
     pub equipment: Option<String>,
     pub description: Option<String>,
     pub cached_at: Option<String>,
-    pub source: String,
+    pub source: ExerciseSource,
     pub created_at: Option<String>,
 }
 

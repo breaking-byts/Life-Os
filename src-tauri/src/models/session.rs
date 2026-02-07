@@ -48,7 +48,7 @@ impl<'r> sqlx::Decode<'r, sqlx::Sqlite> for SessionType {
 pub struct Session {
     pub id: i64,
     pub user_id: i64,
-    pub session_type: String,
+    pub session_type: SessionType,
     pub reference_id: Option<i64>,
     pub reference_type: Option<String>,
     pub started_at: String,
