@@ -13,7 +13,12 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 use url::Url;
 
-use crate::{DbState, error::ApiError, models::google_account::GoogleAccount};
+use crate::{
+    DbState,
+    error::ApiError,
+    models::google_account::GoogleAccount,
+    utils::parse_datetime_to_rfc3339,
+};
 
 const GOOGLE_AUTH_BASE: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
@@ -1177,32 +1182,19 @@ async fn parse_json_response<T: DeserializeOwned>(res: reqwest::Response) -> Res
 }
 
 fn normalize_datetime(value: &str) -> String {
-    if let Ok(dt) = DateTime::parse_from_rfc3339(value) {
-        return dt.to_rfc3339();
-    }
-    if let Ok(dt) = NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S") {
-        if let Some(local) = Local.from_local_datetime(&dt).single() {
-            return local.to_rfc3339();
-        }
-    }
-    if let Ok(dt) = NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M") {
-        if let Some(local) = Local.from_local_datetime(&dt).single() {
-            return local.to_rfc3339();
-        }
-    }
-    if let Ok(date) = NaiveDate::parse_from_str(value, "%Y-%m-%d") {
-        let dt = date.and_hms_opt(9, 0, 0).unwrap_or_else(|| date.and_hms_opt(0, 0, 0).unwrap());
-        if let Some(local) = Local.from_local_datetime(&dt).single() {
-            return local.to_rfc3339();
-        }
-    }
-    Utc::now().to_rfc3339()
+    parse_datetime_to_rfc3339(value).unwrap_or_else(|| Utc::now().to_rfc3339())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::GoogleState;
+    use super::{GoogleState, normalize_datetime};
     use tokio::time::{sleep, timeout, Duration};
+
+    #[test]
+    fn google_calendar_normalize_datetime_outputs_rfc3339() {
+        let output = normalize_datetime("2026-02-07T09:30");
+        assert!(output.contains('Z') || output.contains('+'));
+    }
 
     #[tokio::test]
     async fn google_sync_lock_is_exclusive() {
