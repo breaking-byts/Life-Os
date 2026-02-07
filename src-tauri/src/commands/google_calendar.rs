@@ -29,6 +29,7 @@ const WINDOW_FUTURE_DAYS: i64 = 90;
 pub struct GoogleState {
     oauth: Arc<Mutex<Option<OAuthSession>>>,
     token: Arc<Mutex<Option<TokenState>>>,
+    sync_lock: Arc<Mutex<()>>,
 }
 
 impl Default for GoogleState {
@@ -36,6 +37,7 @@ impl Default for GoogleState {
         Self {
             oauth: Arc::new(Mutex::new(None)),
             token: Arc::new(Mutex::new(None)),
+            sync_lock: Arc::new(Mutex::new(())),
         }
     }
 }
@@ -355,6 +357,7 @@ pub async fn google_sync_now(
     state: State<'_, DbState>,
     google_state: State<'_, GoogleState>,
 ) -> Result<bool, ApiError> {
+    let _sync_guard = google_state.sync_lock.lock().await;
     let client_id = get_google_client_id(&state.0).await?
         .ok_or_else(|| ApiError::validation("Google client ID not set"))?;
 
@@ -1194,4 +1197,35 @@ fn normalize_datetime(value: &str) -> String {
         }
     }
     Utc::now().to_rfc3339()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GoogleState;
+    use tokio::time::{sleep, timeout, Duration};
+
+    #[tokio::test]
+    async fn google_sync_lock_is_exclusive() {
+        let state = GoogleState::default();
+        let guard = state.sync_lock.lock().await;
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let state_clone = state.clone();
+
+        tokio::spawn(async move {
+            let _lock = state_clone.sync_lock.lock().await;
+            let _ = tx.send(());
+        });
+
+        let mut rx = rx;
+        let blocked = tokio::select! {
+            _ = &mut rx => false,
+            _ = sleep(Duration::from_millis(50)) => true,
+        };
+        assert!(blocked, "expected sync lock to block while held");
+
+        drop(guard);
+
+        let acquired = timeout(Duration::from_millis(200), rx).await.is_ok();
+        assert!(acquired, "expected sync lock to release after drop");
+    }
 }
