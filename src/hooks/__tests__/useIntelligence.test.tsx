@@ -187,7 +187,7 @@ describe('useIntelligence', () => {
                 expect(result.current.isLoadingStatus).toBe(false)
             })
 
-            expect(mockedInvoke).toHaveBeenCalledWith('get_agent_status')
+            expect(mockedInvoke).toHaveBeenCalledWith('get_agent_status', undefined)
             expect(result.current.status).toEqual(mockAgentStatus)
         })
     })
@@ -206,7 +206,7 @@ describe('useIntelligence', () => {
                 expect(result.current.isLoadingContext).toBe(false)
             })
 
-            expect(mockedInvoke).toHaveBeenCalledWith('get_rich_context')
+            expect(mockedInvoke).toHaveBeenCalledWith('get_rich_context', undefined)
             expect(result.current.context).toEqual(mockRichContext)
         })
     })
@@ -325,6 +325,10 @@ describe('useBigThree', () => {
         vi.clearAllMocks()
     })
 
+    afterEach(() => {
+        vi.resetAllMocks()
+    })
+
     describe('Goals Query', () => {
         it('fetches Big Three goals on mount', async () => {
             mockedInvoke.mockResolvedValueOnce(mockBigThreeGoals)
@@ -339,7 +343,7 @@ describe('useBigThree', () => {
                 expect(result.current.isLoading).toBe(false)
             })
 
-            expect(mockedInvoke).toHaveBeenCalledWith('get_big_three')
+            expect(mockedInvoke).toHaveBeenCalledWith('get_big_three', undefined)
             expect(result.current.goals).toEqual(mockBigThreeGoals)
         })
 
@@ -463,7 +467,7 @@ describe('useAgentMaintenance', () => {
                 await result.current.runMaintenance.mutateAsync()
             })
 
-            expect(mockedInvoke).toHaveBeenCalledWith('run_agent_maintenance')
+            expect(mockedInvoke).toHaveBeenCalledWith('run_agent_maintenance', undefined)
         })
     })
 
