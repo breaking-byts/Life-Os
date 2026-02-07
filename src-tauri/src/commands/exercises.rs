@@ -197,6 +197,7 @@ async fn bulk_insert_exercises(
 mod performance_tests {
     use super::*;
     use sqlx::sqlite::SqlitePoolOptions;
+    use crate::models::exercise::ExerciseSource;
     use crate::services::wger::ExerciseData;
     use std::time::Instant;
 
@@ -324,7 +325,7 @@ mod performance_tests {
             .unwrap();
 
         assert_eq!(ex1.name, "Test Ex 1");
-        assert_eq!(ex1.source, "wger");
+        assert_eq!(ex1.source, ExerciseSource::Wger);
 
         // Verify Update behavior
         let updates = vec![

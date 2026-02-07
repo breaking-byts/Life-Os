@@ -1,11 +1,15 @@
 use tauri::State;
 
-use crate::{DbState, error::ApiError, models::session::Session};
+use crate::{
+    DbState,
+    error::ApiError,
+    models::session::{Session, SessionType},
+};
 
 #[derive(Debug, serde::Deserialize)]
 pub struct SessionInput {
     pub user_id: Option<i64>,
-    pub session_type: String,
+    pub session_type: SessionType,
     pub reference_id: Option<i64>,
     pub reference_type: Option<String>,
     pub started_at: Option<String>,
