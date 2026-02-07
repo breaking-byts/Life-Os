@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::DbState;
+use crate::{DbState, error::ApiError};
 
 #[derive(Debug, serde::Deserialize)]
 pub struct WeeklyReviewInput {
@@ -23,7 +23,7 @@ pub struct WeeklyReview {
 }
 
 #[tauri::command]
-pub async fn create_weekly_review(state: State<'_, DbState>, data: WeeklyReviewInput) -> Result<WeeklyReview, String> {
+pub async fn create_weekly_review(state: State<'_, DbState>, data: WeeklyReviewInput) -> Result<WeeklyReview, ApiError> {
     let pool = &state.0;
     let rec = sqlx::query_as::<_, WeeklyReview>(
         "INSERT INTO weekly_reviews (user_id, week_start, wins, improvements, notes) VALUES (?, ?, ?, ?, ?) RETURNING id, user_id, week_start, wins, improvements, notes, created_at"
@@ -35,17 +35,16 @@ pub async fn create_weekly_review(state: State<'_, DbState>, data: WeeklyReviewI
     .bind(&data.notes)
     .fetch_one(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
     Ok(rec)
 }
 
 #[tauri::command]
-pub async fn get_weekly_reviews(state: State<'_, DbState>) -> Result<Vec<WeeklyReview>, String> {
+pub async fn get_weekly_reviews(state: State<'_, DbState>) -> Result<Vec<WeeklyReview>, ApiError> {
     let pool = &state.0;
     let rows = sqlx::query_as::<_, WeeklyReview>("SELECT * FROM weekly_reviews ORDER BY week_start DESC")
         .fetch_all(pool)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(ApiError::from)?;
     Ok(rows)
 }
-

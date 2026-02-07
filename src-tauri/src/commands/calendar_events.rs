@@ -1,5 +1,5 @@
 use tauri::State;
-use crate::{DbState, models::calendar_event::CalendarEvent, utils::is_valid_time};
+use crate::{DbState, error::ApiError, models::calendar_event::CalendarEvent, utils::is_valid_time};
 
 #[derive(Debug, serde::Deserialize)]
 pub struct CalendarEventInput {
@@ -32,7 +32,7 @@ pub struct CalendarEventInput {
 pub async fn create_calendar_event(
     state: State<'_, DbState>,
     data: CalendarEventInput,
-) -> Result<CalendarEvent, String> {
+) -> Result<CalendarEvent, ApiError> {
     let pool = &state.0;
 
     // Validate: either (rrule + start_time + end_time) OR (start_at + end_at)
@@ -40,25 +40,31 @@ pub async fn create_calendar_event(
     let has_single = data.start_at.is_some() && data.end_at.is_some();
 
     if !has_recurring && !has_single {
-        return Err("Must provide either (rrule + start_time + end_time) for recurring events OR (start_at + end_at) for single events".to_string());
+        return Err(ApiError::validation(
+            "Must provide either (rrule + start_time + end_time) for recurring events OR (start_at + end_at) for single events",
+        ));
     }
 
     // Validate time format if provided
     if let Some(ref start_time) = data.start_time {
         if !is_valid_time(start_time) {
-            return Err("Invalid start_time format. Use HH:MM (24-hour)".to_string());
+            return Err(ApiError::validation(
+                "Invalid start_time format. Use HH:MM (24-hour)",
+            ));
         }
     }
     if let Some(ref end_time) = data.end_time {
         if !is_valid_time(end_time) {
-            return Err("Invalid end_time format. Use HH:MM (24-hour)".to_string());
+            return Err(ApiError::validation(
+                "Invalid end_time format. Use HH:MM (24-hour)",
+            ));
         }
     }
 
     // Validate start_time < end_time if both provided
     if let (Some(ref start), Some(ref end)) = (&data.start_time, &data.end_time) {
         if start >= end {
-            return Err("start_time must be before end_time".to_string());
+            return Err(ApiError::validation("start_time must be before end_time"));
         }
     }
 
@@ -86,7 +92,7 @@ pub async fn create_calendar_event(
     .await
     .map_err(|e| {
         log::error!("Failed to create calendar event: {}", e);
-        "Failed to create calendar event".to_string()
+        ApiError::from_sqlx(e, "Failed to create calendar event")
     })?;
 
     Ok(rec)
@@ -96,7 +102,7 @@ pub async fn create_calendar_event(
 pub async fn get_calendar_events(
     state: State<'_, DbState>,
     category: Option<String>,
-) -> Result<Vec<CalendarEvent>, String> {
+) -> Result<Vec<CalendarEvent>, ApiError> {
     let pool = &state.0;
 
     let events = if let Some(cat) = category {
@@ -116,7 +122,7 @@ pub async fn get_calendar_events(
 
     events.map_err(|e| {
         log::error!("Failed to fetch calendar events: {}", e);
-        "Failed to fetch calendar events".to_string()
+        ApiError::from_sqlx(e, "Failed to fetch calendar events")
     })
 }
 
@@ -124,7 +130,7 @@ pub async fn get_calendar_events(
 pub async fn get_calendar_event(
     state: State<'_, DbState>,
     id: i64,
-) -> Result<CalendarEvent, String> {
+) -> Result<CalendarEvent, ApiError> {
     let pool = &state.0;
 
     sqlx::query_as::<_, CalendarEvent>(
@@ -135,7 +141,7 @@ pub async fn get_calendar_event(
     .await
     .map_err(|e| {
         log::error!("Failed to fetch calendar event {}: {}", id, e);
-        "Calendar event not found".to_string()
+        ApiError::from_sqlx(e, "Calendar event not found")
     })
 }
 
@@ -144,25 +150,29 @@ pub async fn update_calendar_event(
     state: State<'_, DbState>,
     id: i64,
     data: CalendarEventInput,
-) -> Result<CalendarEvent, String> {
+) -> Result<CalendarEvent, ApiError> {
     let pool = &state.0;
 
     // Validate time format if provided
     if let Some(ref start_time) = data.start_time {
         if !is_valid_time(start_time) {
-            return Err("Invalid start_time format. Use HH:MM (24-hour)".to_string());
+            return Err(ApiError::validation(
+                "Invalid start_time format. Use HH:MM (24-hour)",
+            ));
         }
     }
     if let Some(ref end_time) = data.end_time {
         if !is_valid_time(end_time) {
-            return Err("Invalid end_time format. Use HH:MM (24-hour)".to_string());
+            return Err(ApiError::validation(
+                "Invalid end_time format. Use HH:MM (24-hour)",
+            ));
         }
     }
 
     // Validate start_time < end_time if both provided
     if let (Some(ref start), Some(ref end)) = (&data.start_time, &data.end_time) {
         if start >= end {
-            return Err("start_time must be before end_time".to_string());
+            return Err(ApiError::validation("start_time must be before end_time"));
         }
     }
 
@@ -200,7 +210,7 @@ pub async fn update_calendar_event(
     .await
     .map_err(|e| {
         log::error!("Failed to update calendar event {}: {}", id, e);
-        "Failed to update calendar event".to_string()
+        ApiError::from_sqlx(e, "Failed to update calendar event")
     })?;
 
     Ok(rec)
@@ -210,7 +220,7 @@ pub async fn update_calendar_event(
 pub async fn delete_calendar_event(
     state: State<'_, DbState>,
     id: i64,
-) -> Result<bool, String> {
+) -> Result<bool, ApiError> {
     let pool = &state.0;
 
     let result = sqlx::query("DELETE FROM calendar_events WHERE id = ?")
@@ -219,13 +229,12 @@ pub async fn delete_calendar_event(
         .await
         .map_err(|e| {
             log::error!("Failed to delete calendar event {}: {}", id, e);
-            "Failed to delete calendar event".to_string()
+            ApiError::from_sqlx(e, "Failed to delete calendar event")
         })?;
 
     if result.rows_affected() == 0 {
-        return Err("Calendar event not found".to_string());
+        return Err(ApiError::not_found("Calendar event not found"));
     }
 
     Ok(true)
 }
-

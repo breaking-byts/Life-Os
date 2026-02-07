@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::{DbState, models::course::Course};
+use crate::{DbState, error::ApiError, models::course::Course};
 
 /// Maximum allowed length for string fields
 const MAX_NAME_LENGTH: usize = 255;
@@ -50,28 +50,38 @@ pub struct WeeklyHours {
 }
 
 #[tauri::command]
-pub async fn create_course(state: State<'_, DbState>, data: CourseInput) -> Result<Course, String> {
+pub async fn create_course(state: State<'_, DbState>, data: CourseInput) -> Result<Course, ApiError> {
     let pool = &state.0;
     
     let name = data.name.unwrap_or_else(|| "Untitled Course".to_string());
     
     // Input validation
     if name.len() > MAX_NAME_LENGTH {
-        return Err(format!("Course name too long (max {} characters)", MAX_NAME_LENGTH));
+        return Err(ApiError::validation(format!(
+            "Course name too long (max {} characters)",
+            MAX_NAME_LENGTH
+        )));
     }
     if let Some(ref code) = data.code {
         if code.len() > MAX_CODE_LENGTH {
-            return Err(format!("Course code too long (max {} characters)", MAX_CODE_LENGTH));
+            return Err(ApiError::validation(format!(
+                "Course code too long (max {} characters)",
+                MAX_CODE_LENGTH
+            )));
         }
     }
     if let Some(hours) = data.credit_hours {
         if hours < 0 || hours > 12 {
-            return Err("Credit hours must be between 0 and 12".to_string());
+            return Err(ApiError::validation(
+                "Credit hours must be between 0 and 12",
+            ));
         }
     }
     if let Some(target) = data.target_weekly_hours {
         if target < 0.0 || target > 168.0 {
-            return Err("Target weekly hours must be between 0 and 168".to_string());
+            return Err(ApiError::validation(
+                "Target weekly hours must be between 0 and 168",
+            ));
         }
     }
     
@@ -95,7 +105,7 @@ pub async fn create_course(state: State<'_, DbState>, data: CourseInput) -> Resu
     .await
     .map_err(|e| {
         log::error!("Failed to create course: {}", e);
-        "Failed to create course".to_string()
+        ApiError::from_sqlx(e, "Failed to create course")
     })?;
     
     log::info!("Course created successfully: id={}", rec.id);
@@ -103,20 +113,20 @@ pub async fn create_course(state: State<'_, DbState>, data: CourseInput) -> Resu
 }
 
 #[tauri::command]
-pub async fn get_courses(state: State<'_, DbState>) -> Result<Vec<Course>, String> {
+pub async fn get_courses(state: State<'_, DbState>) -> Result<Vec<Course>, ApiError> {
     let pool = &state.0;
     let rows = sqlx::query_as::<_, Course>("SELECT * FROM courses ORDER BY created_at DESC")
         .fetch_all(pool)
         .await
         .map_err(|e| {
             log::error!("Failed to fetch courses: {}", e);
-            "Failed to fetch courses".to_string()
+            ApiError::from_sqlx(e, "Failed to fetch courses")
         })?;
     Ok(rows)
 }
 
 #[tauri::command]
-pub async fn get_course(state: State<'_, DbState>, id: i64) -> Result<Course, String> {
+pub async fn get_course(state: State<'_, DbState>, id: i64) -> Result<Course, ApiError> {
     let pool = &state.0;
     let row = sqlx::query_as::<_, Course>("SELECT * FROM courses WHERE id = ?")
         .bind(id)
@@ -124,34 +134,44 @@ pub async fn get_course(state: State<'_, DbState>, id: i64) -> Result<Course, St
         .await
         .map_err(|e| {
             log::error!("Failed to fetch course {}: {}", id, e);
-            "Course not found".to_string()
+            ApiError::from_sqlx(e, "Course not found")
         })?;
     Ok(row)
 }
 
 #[tauri::command]
-pub async fn update_course(state: State<'_, DbState>, id: i64, data: CourseInput) -> Result<Course, String> {
+pub async fn update_course(state: State<'_, DbState>, id: i64, data: CourseInput) -> Result<Course, ApiError> {
     let pool = &state.0;
     
     // Input validation
     if let Some(ref name) = data.name {
         if name.len() > MAX_NAME_LENGTH {
-            return Err(format!("Course name too long (max {} characters)", MAX_NAME_LENGTH));
+            return Err(ApiError::validation(format!(
+                "Course name too long (max {} characters)",
+                MAX_NAME_LENGTH
+            )));
         }
     }
     if let Some(ref code) = data.code {
         if code.len() > MAX_CODE_LENGTH {
-            return Err(format!("Course code too long (max {} characters)", MAX_CODE_LENGTH));
+            return Err(ApiError::validation(format!(
+                "Course code too long (max {} characters)",
+                MAX_CODE_LENGTH
+            )));
         }
     }
     if let Some(hours) = data.credit_hours {
         if hours < 0 || hours > 12 {
-            return Err("Credit hours must be between 0 and 12".to_string());
+            return Err(ApiError::validation(
+                "Credit hours must be between 0 and 12",
+            ));
         }
     }
     if let Some(target) = data.target_weekly_hours {
         if target < 0.0 || target > 168.0 {
-            return Err("Target weekly hours must be between 0 and 168".to_string());
+            return Err(ApiError::validation(
+                "Target weekly hours must be between 0 and 168",
+            ));
         }
     }
     
@@ -171,7 +191,7 @@ pub async fn update_course(state: State<'_, DbState>, id: i64, data: CourseInput
     .await
     .map_err(|e| {
         log::error!("Failed to update course {}: {}", id, e);
-        "Failed to update course".to_string()
+        ApiError::from_sqlx(e, "Failed to update course")
     })?;
     
     log::info!("Course updated: id={}", id);
@@ -179,7 +199,7 @@ pub async fn update_course(state: State<'_, DbState>, id: i64, data: CourseInput
 }
 
 #[tauri::command]
-pub async fn delete_course(state: State<'_, DbState>, id: i64) -> Result<bool, String> {
+pub async fn delete_course(state: State<'_, DbState>, id: i64) -> Result<bool, ApiError> {
     let pool = &state.0;
     let result = sqlx::query("DELETE FROM courses WHERE id = ?")
         .bind(id)
@@ -187,11 +207,11 @@ pub async fn delete_course(state: State<'_, DbState>, id: i64) -> Result<bool, S
         .await
         .map_err(|e| {
             log::error!("Failed to delete course {}: {}", id, e);
-            "Failed to delete course".to_string()
+            ApiError::from_sqlx(e, "Failed to delete course")
         })?;
 
     if result.rows_affected() == 0 {
-        return Err("Course not found".to_string());
+        return Err(ApiError::not_found("Course not found"));
     }
 
     log::info!("Course deleted: id={}", id);
@@ -225,11 +245,11 @@ pub struct CourseInput {
 // ============================================================================
 
 #[tauri::command]
-pub async fn get_courses_with_progress(state: State<'_, DbState>) -> Result<Vec<CourseWithProgress>, String> {
+pub async fn get_courses_with_progress(state: State<'_, DbState>) -> Result<Vec<CourseWithProgress>, ApiError> {
     get_courses_with_progress_inner(&state.0).await
 }
 
-pub async fn get_courses_with_progress_inner(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<Vec<CourseWithProgress>, String> {
+pub async fn get_courses_with_progress_inner(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<Vec<CourseWithProgress>, ApiError> {
     sqlx::query_as::<_, CourseWithProgress>(
         r#"
         SELECT
@@ -293,12 +313,12 @@ pub async fn get_courses_with_progress_inner(pool: &sqlx::Pool<sqlx::Sqlite>) ->
     .await
     .map_err(|e| {
         log::error!("Failed to fetch courses with progress: {}", e);
-        "Failed to fetch courses".to_string()
+        ApiError::from_sqlx(e, "Failed to fetch courses")
     })
 }
 
 #[tauri::command]
-pub async fn get_course_analytics(state: State<'_, DbState>, course_id: i64) -> Result<CourseAnalytics, String> {
+pub async fn get_course_analytics(state: State<'_, DbState>, course_id: i64) -> Result<CourseAnalytics, ApiError> {
     let pool = &state.0;
     
     // Get course target
@@ -396,7 +416,7 @@ pub async fn get_course_analytics(state: State<'_, DbState>, course_id: i64) -> 
     .bind(course_id)
     .fetch_all(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
     
     let weekly_history: Vec<WeeklyHours> = weekly_rows
         .into_iter()

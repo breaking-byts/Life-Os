@@ -1,5 +1,5 @@
 use tauri::State;
-use crate::{DbState, models::week_plan_block::WeekPlanBlock};
+use crate::{DbState, error::ApiError, models::week_plan_block::WeekPlanBlock};
 
 #[derive(Debug, serde::Deserialize)]
 pub struct WeekPlanBlockInput {
@@ -24,22 +24,22 @@ pub struct WeekPlanBlockInput {
 const VALID_BLOCK_TYPES: &[&str] = &["study", "assignment", "exam_prep", "break", "weekly_task"];
 const VALID_STATUSES: &[&str] = &["suggested", "accepted", "locked"];
 
-fn validate_block_type(block_type: &str) -> Result<(), String> {
+fn validate_block_type(block_type: &str) -> Result<(), ApiError> {
     if !VALID_BLOCK_TYPES.contains(&block_type) {
-        return Err(format!(
+        return Err(ApiError::validation(format!(
             "Invalid block_type '{}'. Must be one of: {:?}",
             block_type, VALID_BLOCK_TYPES
-        ));
+        )));
     }
     Ok(())
 }
 
-fn validate_status(status: &str) -> Result<(), String> {
+fn validate_status(status: &str) -> Result<(), ApiError> {
     if !VALID_STATUSES.contains(&status) {
-        return Err(format!(
+        return Err(ApiError::validation(format!(
             "Invalid status '{}'. Must be one of: {:?}",
             status, VALID_STATUSES
-        ));
+        )));
     }
     Ok(())
 }
@@ -48,7 +48,7 @@ fn validate_status(status: &str) -> Result<(), String> {
 pub async fn create_week_plan_block(
     state: State<'_, DbState>,
     data: WeekPlanBlockInput,
-) -> Result<WeekPlanBlock, String> {
+) -> Result<WeekPlanBlock, ApiError> {
     let pool = &state.0;
 
     // Validate block_type
@@ -79,7 +79,7 @@ pub async fn create_week_plan_block(
     .await
     .map_err(|e| {
         log::error!("Failed to create week plan block: {}", e);
-        "Failed to create week plan block".to_string()
+        ApiError::from_sqlx(e, "Failed to create week plan block")
     })?;
 
     Ok(rec)
@@ -89,7 +89,7 @@ pub async fn create_week_plan_block(
 pub async fn get_week_plan_blocks(
     state: State<'_, DbState>,
     week_start_date: String,
-) -> Result<Vec<WeekPlanBlock>, String> {
+) -> Result<Vec<WeekPlanBlock>, ApiError> {
     let pool = &state.0;
 
     let blocks = sqlx::query_as::<_, WeekPlanBlock>(
@@ -100,7 +100,7 @@ pub async fn get_week_plan_blocks(
     .await
     .map_err(|e| {
         log::error!("Failed to fetch week plan blocks: {}", e);
-        "Failed to fetch week plan blocks".to_string()
+        ApiError::from_sqlx(e, "Failed to fetch week plan blocks")
     })?;
 
     Ok(blocks)
@@ -111,7 +111,7 @@ pub async fn update_week_plan_block(
     state: State<'_, DbState>,
     id: i64,
     data: WeekPlanBlockInput,
-) -> Result<WeekPlanBlock, String> {
+) -> Result<WeekPlanBlock, ApiError> {
     let pool = &state.0;
 
     // Validate block_type
@@ -152,7 +152,7 @@ pub async fn update_week_plan_block(
     .await
     .map_err(|e| {
         log::error!("Failed to update week plan block {}: {}", id, e);
-        "Failed to update week plan block".to_string()
+        ApiError::from_sqlx(e, "Failed to update week plan block")
     })?;
 
     Ok(rec)
@@ -162,7 +162,7 @@ pub async fn update_week_plan_block(
 pub async fn accept_week_plan_block(
     state: State<'_, DbState>,
     id: i64,
-) -> Result<WeekPlanBlock, String> {
+) -> Result<WeekPlanBlock, ApiError> {
     let pool = &state.0;
 
     let rec = sqlx::query_as::<_, WeekPlanBlock>(
@@ -176,7 +176,7 @@ pub async fn accept_week_plan_block(
     .await
     .map_err(|e| {
         log::error!("Failed to accept week plan block {}: {}", id, e);
-        "Failed to accept week plan block".to_string()
+        ApiError::from_sqlx(e, "Failed to accept week plan block")
     })?;
 
     Ok(rec)
@@ -186,7 +186,7 @@ pub async fn accept_week_plan_block(
 pub async fn lock_week_plan_block(
     state: State<'_, DbState>,
     id: i64,
-) -> Result<WeekPlanBlock, String> {
+) -> Result<WeekPlanBlock, ApiError> {
     let pool = &state.0;
 
     let rec = sqlx::query_as::<_, WeekPlanBlock>(
@@ -200,7 +200,7 @@ pub async fn lock_week_plan_block(
     .await
     .map_err(|e| {
         log::error!("Failed to lock week plan block {}: {}", id, e);
-        "Failed to lock week plan block".to_string()
+        ApiError::from_sqlx(e, "Failed to lock week plan block")
     })?;
 
     Ok(rec)
@@ -210,7 +210,7 @@ pub async fn lock_week_plan_block(
 pub async fn delete_week_plan_block(
     state: State<'_, DbState>,
     id: i64,
-) -> Result<bool, String> {
+) -> Result<bool, ApiError> {
     let pool = &state.0;
 
     let result = sqlx::query("DELETE FROM week_plan_blocks WHERE id = ?")
@@ -219,11 +219,11 @@ pub async fn delete_week_plan_block(
         .await
         .map_err(|e| {
             log::error!("Failed to delete week plan block {}: {}", id, e);
-            "Failed to delete week plan block".to_string()
+            ApiError::from_sqlx(e, "Failed to delete week plan block")
         })?;
 
     if result.rows_affected() == 0 {
-        return Err("Week plan block not found".to_string());
+        return Err(ApiError::not_found("Week plan block not found"));
     }
 
     Ok(true)
@@ -233,7 +233,7 @@ pub async fn delete_week_plan_block(
 pub async fn clear_suggested_blocks(
     state: State<'_, DbState>,
     week_start_date: String,
-) -> Result<i64, String> {
+) -> Result<i64, ApiError> {
     let pool = &state.0;
 
     let result = sqlx::query("DELETE FROM week_plan_blocks WHERE week_start_date = ? AND status = 'suggested'")
@@ -242,7 +242,7 @@ pub async fn clear_suggested_blocks(
         .await
         .map_err(|e| {
             log::error!("Failed to clear suggested blocks for week {}: {}", week_start_date, e);
-            "Failed to clear suggested blocks".to_string()
+            ApiError::from_sqlx(e, "Failed to clear suggested blocks")
         })?;
 
     Ok(result.rows_affected() as i64)
@@ -252,14 +252,16 @@ pub async fn clear_suggested_blocks(
 pub async fn bulk_create_plan_blocks(
     state: State<'_, DbState>,
     blocks: Vec<WeekPlanBlockInput>,
-) -> Result<Vec<WeekPlanBlock>, String> {
+) -> Result<Vec<WeekPlanBlock>, ApiError> {
     let pool = &state.0;
 
     // Validate all blocks first
     for (i, block) in blocks.iter().enumerate() {
-        validate_block_type(&block.block_type).map_err(|e| format!("Block {}: {}", i, e))?;
+        validate_block_type(&block.block_type)
+            .map_err(|e| ApiError::validation(format!("Block {}: {}", i, e.message)))?;
         if let Some(ref status) = block.status {
-            validate_status(status).map_err(|e| format!("Block {}: {}", i, e))?;
+            validate_status(status)
+                .map_err(|e| ApiError::validation(format!("Block {}: {}", i, e.message)))?;
         }
     }
 
@@ -269,7 +271,7 @@ pub async fn bulk_create_plan_blocks(
 
     let mut transaction = pool.begin().await.map_err(|e| {
         log::error!("Failed to start transaction for bulk create week plan blocks: {}", e);
-        "Failed to bulk create week plan blocks".to_string()
+        ApiError::from_sqlx(e, "Failed to bulk create week plan blocks")
     })?;
 
     let mut qb = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
@@ -300,12 +302,12 @@ pub async fn bulk_create_plan_blocks(
         .await
         .map_err(|e| {
             log::error!("Failed to bulk create week plan blocks: {}", e);
-            "Failed to bulk create week plan blocks".to_string()
+            ApiError::from_sqlx(e, "Failed to bulk create week plan blocks")
         })?;
 
     transaction.commit().await.map_err(|e| {
         log::error!("Failed to commit bulk create week plan blocks: {}", e);
-        "Failed to bulk create week plan blocks".to_string()
+        ApiError::from_sqlx(e, "Failed to bulk create week plan blocks")
     })?;
 
     Ok(created_blocks)

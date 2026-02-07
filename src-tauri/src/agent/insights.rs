@@ -6,7 +6,7 @@
 use tauri::State;
 use serde_json;
 
-use crate::DbState;
+use crate::{DbState, error::ApiError};
 use crate::ml::{FeatureStore, ContextualBandit, PatternMiner, UserProfile};
 use crate::ml::models::AdaptiveInsight;
 
@@ -25,21 +25,30 @@ pub struct Insight {
 
 /// Get adaptive insights using ML-powered selection
 #[tauri::command]
-pub async fn get_insights(state: State<'_, DbState>) -> Result<Vec<Insight>, String> {
-    let pool = &state.0;
+pub async fn get_insights(state: State<'_, DbState>) -> Result<Vec<Insight>, ApiError> {
+    get_insights_for_pool(&state.0).await
+}
+
+async fn get_insights_for_pool(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<Vec<Insight>, ApiError> {
     let mut insights = Vec::new();
 
     // Capture current context
-    let context = FeatureStore::capture_context(pool).await.unwrap_or_default();
-    
+    let context = FeatureStore::capture_context(pool)
+        .await
+        .map_err(ApiError::internal)?;
+
     // Save context snapshot for pattern mining (don't fail if this fails)
     let _ = FeatureStore::save_snapshot(pool, &context).await;
 
     // Get top bandit arms to show
-    let selected_arms = ContextualBandit::select_top_arms(pool, &context, 3).await.unwrap_or_default();
-    
+    let selected_arms = ContextualBandit::select_top_arms(pool, &context, 3)
+        .await
+        .map_err(ApiError::internal)?;
+
     // Get active patterns for context-aware insights
-    let patterns = PatternMiner::get_active_patterns(pool).await.unwrap_or_default();
+    let patterns = PatternMiner::get_active_patterns(pool)
+        .await
+        .map_err(ApiError::internal)?;
 
     // Generate insights from selected arms
     for arm in &selected_arms {
@@ -51,7 +60,9 @@ pub async fn get_insights(state: State<'_, DbState>) -> Result<Vec<Insight>, Str
                 &insight.category,
                 &arm.arm_name,
                 &context_json,
-            ).await.ok();
+            )
+            .await
+            .ok();
 
             insights.push(Insight {
                 icon: insight.icon,
@@ -312,7 +323,7 @@ async fn generate_insight_for_arm(
 }
 
 /// Fallback to simple rule-based insights when ML hasn't learned enough
-async fn get_fallback_insights(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<Vec<Insight>, String> {
+async fn get_fallback_insights(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<Vec<Insight>, ApiError> {
     let mut insights = Vec::new();
 
     // Check for missing check-in today
@@ -364,28 +375,119 @@ pub async fn record_insight_feedback(
     insight_id: i64,
     acted_on: bool,
     feedback_score: Option<i32>,
-) -> Result<(), String> {
+) -> Result<(), ApiError> {
     let pool = &state.0;
-    ContextualBandit::record_feedback(pool, insight_id, acted_on, feedback_score).await
+    ContextualBandit::record_feedback(pool, insight_id, acted_on, feedback_score)
+        .await
+        .map_err(ApiError::internal)
 }
 
 /// Trigger pattern mining (can be called periodically or on-demand)
 #[tauri::command]
-pub async fn run_pattern_analysis(state: State<'_, DbState>) -> Result<usize, String> {
+pub async fn run_pattern_analysis(state: State<'_, DbState>) -> Result<usize, ApiError> {
     let pool = &state.0;
     
     // Run pattern mining
-    let patterns_found = PatternMiner::discover_and_save_patterns(pool).await?;
+    let patterns_found = PatternMiner::discover_and_save_patterns(pool)
+        .await
+        .map_err(ApiError::internal)?;
     
     // Update user profile
-    UserProfile::learn_all(pool).await?;
+    UserProfile::learn_all(pool)
+        .await
+        .map_err(ApiError::internal)?;
     
     Ok(patterns_found)
 }
 
 /// Get user profile for display
 #[tauri::command]
-pub async fn get_user_profile(state: State<'_, DbState>) -> Result<Vec<crate::ml::models::ProfileDimension>, String> {
+pub async fn get_user_profile(state: State<'_, DbState>) -> Result<Vec<crate::ml::models::ProfileDimension>, ApiError> {
     let pool = &state.0;
-    UserProfile::get_all_dimensions(pool).await
+    UserProfile::get_all_dimensions(pool)
+        .await
+        .map_err(ApiError::internal)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::ErrorCode;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use std::str::FromStr;
+
+    async fn setup_pool_with_migrations() -> sqlx::Pool<sqlx::Sqlite> {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("Failed to connect to in-memory DB");
+
+        crate::db::migrations::run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
+
+        pool
+    }
+
+
+    #[tokio::test]
+    async fn get_insights_returns_error_when_capture_context_fails() {
+        let pool = setup_pool_with_migrations().await;
+        sqlx::query("DROP TABLE check_ins")
+            .execute(&pool)
+            .await
+            .expect("Failed to drop check_ins table");
+        let result = get_insights_for_pool(&pool).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code, ErrorCode::Internal);
+        assert!(
+            err.message.contains("check_ins"),
+            "error message: {}",
+            err.message
+        );
+    }
+
+    #[tokio::test]
+    async fn get_insights_returns_error_when_bandit_selection_fails() {
+        let pool = setup_pool_with_migrations().await;
+        sqlx::query("DROP TABLE agent_bandit_arms")
+            .execute(&pool)
+            .await
+            .expect("Failed to drop bandit arms table");
+        let result = get_insights_for_pool(&pool).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code, ErrorCode::Internal);
+        assert!(
+            err.message.contains("agent_bandit_arms"),
+            "error message: {}",
+            err.message
+        );
+    }
+
+    #[tokio::test]
+    async fn get_insights_returns_error_when_pattern_fetch_fails() {
+        let pool = setup_pool_with_migrations().await;
+        sqlx::query("DROP TABLE agent_patterns")
+            .execute(&pool)
+            .await
+            .expect("Failed to drop patterns table");
+        let result = get_insights_for_pool(&pool).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.code, ErrorCode::Internal);
+        assert!(
+            err.message.contains("agent_patterns"),
+            "error message: {}",
+            err.message
+        );
+    }
 }

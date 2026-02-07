@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::DbState;
+use crate::{DbState, error::ApiError};
 
 #[derive(Debug, serde::Deserialize)]
 pub struct PracticeInput {
@@ -19,9 +19,9 @@ pub struct PracticeLog {
 }
 
 #[tauri::command]
-pub async fn log_practice(state: State<'_, DbState>, data: PracticeInput) -> Result<PracticeLog, String> {
+pub async fn log_practice(state: State<'_, DbState>, data: PracticeInput) -> Result<PracticeLog, ApiError> {
     let pool = &state.0;
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = pool.begin().await.map_err(ApiError::from)?;
 
     let rec = sqlx::query_as::<_, PracticeLog>(
         "INSERT INTO practice_logs (skill_id, duration_minutes, notes) VALUES (?, ?, ?) RETURNING id, skill_id, duration_minutes, notes, logged_at"
@@ -31,33 +31,32 @@ pub async fn log_practice(state: State<'_, DbState>, data: PracticeInput) -> Res
     .bind(&data.notes)
     .fetch_one(&mut *tx)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     sqlx::query("UPDATE skills SET total_hours = COALESCE(total_hours, 0) + (? / 60.0) WHERE id = ?")
         .bind(data.duration_minutes)
         .bind(data.skill_id)
         .execute(&mut *tx)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(ApiError::from)?;
 
-    tx.commit().await.map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(ApiError::from)?;
     Ok(rec)
 }
 
 #[tauri::command]
-pub async fn get_practice_logs(state: State<'_, DbState>, skill_id: Option<i64>) -> Result<Vec<PracticeLog>, String> {
+pub async fn get_practice_logs(state: State<'_, DbState>, skill_id: Option<i64>) -> Result<Vec<PracticeLog>, ApiError> {
     let pool = &state.0;
     let rows = match skill_id {
         Some(id) => sqlx::query_as::<_, PracticeLog>("SELECT * FROM practice_logs WHERE skill_id = ? ORDER BY logged_at DESC")
             .bind(id)
             .fetch_all(pool)
             .await
-            .map_err(|e| e.to_string())?,
+            .map_err(ApiError::from)?,
         None => sqlx::query_as::<_, PracticeLog>("SELECT * FROM practice_logs ORDER BY logged_at DESC")
             .fetch_all(pool)
             .await
-            .map_err(|e| e.to_string())?,
+            .map_err(ApiError::from)?,
     };
     Ok(rows)
 }
-

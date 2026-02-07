@@ -27,6 +27,7 @@ vi.mock('@tauri-apps/api/core', () => ({
     invoke: vi.fn(),
 }))
 
+
 vi.mock('@tauri-apps/plugin-store', () => ({
     Store: vi.fn().mockImplementation(() => ({
         get: vi.fn(),

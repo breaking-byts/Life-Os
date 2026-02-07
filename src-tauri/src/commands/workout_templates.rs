@@ -1,6 +1,10 @@
 use tauri::State;
 
-use crate::{DbState, models::workout::{WorkoutTemplate, WorkoutTemplateExercise}};
+use crate::{
+    DbState,
+    error::ApiError,
+    models::workout::{WorkoutTemplate, WorkoutTemplateExercise},
+};
 
 #[derive(Debug, serde::Deserialize)]
 pub struct TemplateExerciseInput {
@@ -13,14 +17,14 @@ pub struct TemplateExerciseInput {
 }
 
 #[tauri::command]
-pub async fn get_workout_templates(state: State<'_, DbState>) -> Result<Vec<WorkoutTemplate>, String> {
+pub async fn get_workout_templates(state: State<'_, DbState>) -> Result<Vec<WorkoutTemplate>, ApiError> {
     let pool = &state.0;
     let rows = sqlx::query_as::<_, WorkoutTemplate>(
         "SELECT id, user_id, name, created_at, updated_at FROM workout_templates ORDER BY updated_at DESC"
     )
     .fetch_all(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
     Ok(rows)
 }
 
@@ -28,7 +32,7 @@ pub async fn get_workout_templates(state: State<'_, DbState>) -> Result<Vec<Work
 pub async fn get_template_exercises(
     state: State<'_, DbState>,
     template_id: i64,
-) -> Result<Vec<WorkoutTemplateExercise>, String> {
+) -> Result<Vec<WorkoutTemplateExercise>, ApiError> {
     let pool = &state.0;
     let exercises = sqlx::query_as::<_, WorkoutTemplateExercise>(
         "SELECT id, template_id, exercise_id, exercise_name, default_sets, default_reps, default_weight, order_index 
@@ -37,7 +41,7 @@ pub async fn get_template_exercises(
     .bind(template_id)
     .fetch_all(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
     Ok(exercises)
 }
 
@@ -46,7 +50,7 @@ pub async fn create_workout_template(
     state: State<'_, DbState>,
     name: String,
     exercises: Vec<TemplateExerciseInput>,
-) -> Result<WorkoutTemplate, String> {
+) -> Result<WorkoutTemplate, ApiError> {
     let pool = &state.0;
     
     // Create the template
@@ -57,7 +61,7 @@ pub async fn create_workout_template(
     .bind(&name)
     .fetch_one(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
     
     // Add exercises to the template
     for (idx, ex) in exercises.iter().enumerate() {
@@ -74,7 +78,7 @@ pub async fn create_workout_template(
         .bind(ex.order_index.unwrap_or(idx as i64))
         .execute(pool)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(ApiError::from)?;
     }
     
     Ok(template)
@@ -86,7 +90,7 @@ pub async fn update_workout_template(
     id: i64,
     name: String,
     exercises: Vec<TemplateExerciseInput>,
-) -> Result<WorkoutTemplate, String> {
+) -> Result<WorkoutTemplate, ApiError> {
     let pool = &state.0;
     
     // Update the template name and updated_at
@@ -98,14 +102,14 @@ pub async fn update_workout_template(
     .bind(id)
     .fetch_one(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
     
     // Delete existing exercises
     sqlx::query("DELETE FROM workout_template_exercises WHERE template_id = ?")
         .bind(id)
         .execute(pool)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(ApiError::from)?;
     
     // Add new exercises
     for (idx, ex) in exercises.iter().enumerate() {
@@ -122,23 +126,23 @@ pub async fn update_workout_template(
         .bind(ex.order_index.unwrap_or(idx as i64))
         .execute(pool)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(ApiError::from)?;
     }
     
     Ok(template)
 }
 
 #[tauri::command]
-pub async fn delete_workout_template(state: State<'_, DbState>, id: i64) -> Result<bool, String> {
+pub async fn delete_workout_template(state: State<'_, DbState>, id: i64) -> Result<bool, ApiError> {
     let pool = &state.0;
     let result = sqlx::query("DELETE FROM workout_templates WHERE id = ?")
         .bind(id)
         .execute(pool)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(ApiError::from)?;
 
     if result.rows_affected() == 0 {
-        return Err("Workout template not found".to_string());
+        return Err(ApiError::not_found("Workout template not found"));
     }
 
     Ok(true)

@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::{DbState, models::assignment::Assignment};
+use crate::{DbState, error::ApiError, models::assignment::Assignment};
 
 #[derive(Debug, serde::Deserialize)]
 pub struct AssignmentInput {
@@ -12,7 +12,7 @@ pub struct AssignmentInput {
 }
 
 #[tauri::command]
-pub async fn create_assignment(state: State<'_, DbState>, data: AssignmentInput) -> Result<Assignment, String> {
+pub async fn create_assignment(state: State<'_, DbState>, data: AssignmentInput) -> Result<Assignment, ApiError> {
     let pool = &state.0;
     let rec = sqlx::query_as::<_, Assignment>(
         "INSERT INTO assignments (course_id, title, description, due_date, priority) VALUES (?, ?, ?, ?, ?) RETURNING id, course_id, title, description, due_date, priority, is_completed, completed_at, created_at"
@@ -24,30 +24,30 @@ pub async fn create_assignment(state: State<'_, DbState>, data: AssignmentInput)
     .bind(&data.priority)
     .fetch_one(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
     Ok(rec)
 }
 
 #[tauri::command]
-pub async fn get_assignments(state: State<'_, DbState>, course_id: Option<i64>) -> Result<Vec<Assignment>, String> {
+pub async fn get_assignments(state: State<'_, DbState>, course_id: Option<i64>) -> Result<Vec<Assignment>, ApiError> {
     let pool = &state.0;
     let rows = if let Some(course_id) = course_id {
         sqlx::query_as::<_, Assignment>("SELECT * FROM assignments WHERE course_id = ? ORDER BY due_date IS NULL, due_date")
             .bind(course_id)
             .fetch_all(pool)
             .await
-            .map_err(|e| e.to_string())?
+            .map_err(ApiError::from)?
     } else {
         sqlx::query_as::<_, Assignment>("SELECT * FROM assignments ORDER BY due_date IS NULL, due_date")
             .fetch_all(pool)
             .await
-            .map_err(|e| e.to_string())?
+            .map_err(ApiError::from)?
     };
     Ok(rows)
 }
 
 #[tauri::command]
-pub async fn update_assignment(state: State<'_, DbState>, id: i64, data: AssignmentInput) -> Result<Assignment, String> {
+pub async fn update_assignment(state: State<'_, DbState>, id: i64, data: AssignmentInput) -> Result<Assignment, ApiError> {
     let pool = &state.0;
     let rec = sqlx::query_as::<_, Assignment>(
         "UPDATE assignments SET course_id = COALESCE(?, course_id), title = COALESCE(?, title), description = COALESCE(?, description), due_date = COALESCE(?, due_date), priority = COALESCE(?, priority) WHERE id = ? RETURNING id, course_id, title, description, due_date, priority, is_completed, completed_at, created_at"
@@ -60,28 +60,28 @@ pub async fn update_assignment(state: State<'_, DbState>, id: i64, data: Assignm
     .bind(id)
     .fetch_one(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
     Ok(rec)
 }
 
 #[tauri::command]
-pub async fn delete_assignment(state: State<'_, DbState>, id: i64) -> Result<bool, String> {
+pub async fn delete_assignment(state: State<'_, DbState>, id: i64) -> Result<bool, ApiError> {
     let pool = &state.0;
     let result = sqlx::query("DELETE FROM assignments WHERE id = ?")
         .bind(id)
         .execute(pool)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(ApiError::from)?;
 
     if result.rows_affected() == 0 {
-        return Err("Assignment not found".to_string());
+        return Err(ApiError::not_found("Assignment not found"));
     }
 
     Ok(true)
 }
 
 #[tauri::command]
-pub async fn toggle_assignment(state: State<'_, DbState>, id: i64) -> Result<Assignment, String> {
+pub async fn toggle_assignment(state: State<'_, DbState>, id: i64) -> Result<Assignment, ApiError> {
     let pool = &state.0;
     let rec = sqlx::query_as::<_, Assignment>(
         "UPDATE assignments SET is_completed = CASE WHEN is_completed = 1 THEN 0 ELSE 1 END, completed_at = CASE WHEN is_completed = 1 THEN NULL ELSE CURRENT_TIMESTAMP END WHERE id = ? RETURNING id, course_id, title, description, due_date, priority, is_completed, completed_at, created_at"
@@ -89,7 +89,6 @@ pub async fn toggle_assignment(state: State<'_, DbState>, id: i64) -> Result<Ass
     .bind(id)
     .fetch_one(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
     Ok(rec)
 }
-

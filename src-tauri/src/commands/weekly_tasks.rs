@@ -1,5 +1,5 @@
 use tauri::State;
-use crate::{DbState, models::weekly_task::WeeklyTask};
+use crate::{DbState, error::ApiError, models::weekly_task::WeeklyTask};
 
 #[derive(Debug, serde::Deserialize)]
 pub struct WeeklyTaskInput {
@@ -35,18 +35,20 @@ fn is_valid_priority(priority: &str) -> bool {
 pub async fn create_weekly_task(
     state: State<'_, DbState>,
     data: WeeklyTaskInput,
-) -> Result<WeeklyTask, String> {
+) -> Result<WeeklyTask, ApiError> {
     let pool = &state.0;
 
     // Validate title not empty
     if data.title.trim().is_empty() {
-        return Err("Title cannot be empty".to_string());
+        return Err(ApiError::validation("Title cannot be empty"));
     }
 
     // Validate priority if provided
     if let Some(ref priority) = data.priority {
         if !is_valid_priority(priority) {
-            return Err("Priority must be 'low', 'medium', or 'high'".to_string());
+            return Err(ApiError::validation(
+                "Priority must be 'low', 'medium', or 'high'",
+            ));
         }
     }
 
@@ -70,7 +72,7 @@ pub async fn create_weekly_task(
     .await
     .map_err(|e| {
         log::error!("Failed to create weekly task: {}", e);
-        "Failed to create weekly task".to_string()
+        ApiError::from_sqlx(e, "Failed to create weekly task")
     })?;
 
     Ok(rec)
@@ -80,7 +82,7 @@ pub async fn create_weekly_task(
 pub async fn get_weekly_tasks(
     state: State<'_, DbState>,
     week_start_date: Option<String>,
-) -> Result<Vec<WeeklyTask>, String> {
+) -> Result<Vec<WeeklyTask>, ApiError> {
     let pool = &state.0;
 
     let week_date = week_start_date.unwrap_or_else(get_current_week_start);
@@ -93,7 +95,7 @@ pub async fn get_weekly_tasks(
     .await
     .map_err(|e| {
         log::error!("Failed to fetch weekly tasks: {}", e);
-        "Failed to fetch weekly tasks".to_string()
+        ApiError::from_sqlx(e, "Failed to fetch weekly tasks")
     })?;
 
     Ok(tasks)
@@ -104,18 +106,20 @@ pub async fn update_weekly_task(
     state: State<'_, DbState>,
     id: i64,
     data: WeeklyTaskInput,
-) -> Result<WeeklyTask, String> {
+) -> Result<WeeklyTask, ApiError> {
     let pool = &state.0;
 
     // Validate title not empty
     if data.title.trim().is_empty() {
-        return Err("Title cannot be empty".to_string());
+        return Err(ApiError::validation("Title cannot be empty"));
     }
 
     // Validate priority if provided
     if let Some(ref priority) = data.priority {
         if !is_valid_priority(priority) {
-            return Err("Priority must be 'low', 'medium', or 'high'".to_string());
+            return Err(ApiError::validation(
+                "Priority must be 'low', 'medium', or 'high'",
+            ));
         }
     }
 
@@ -145,7 +149,7 @@ pub async fn update_weekly_task(
     .await
     .map_err(|e| {
         log::error!("Failed to update weekly task {}: {}", id, e);
-        "Failed to update weekly task".to_string()
+        ApiError::from_sqlx(e, "Failed to update weekly task")
     })?;
 
     Ok(rec)
@@ -155,7 +159,7 @@ pub async fn update_weekly_task(
 pub async fn toggle_weekly_task(
     state: State<'_, DbState>,
     id: i64,
-) -> Result<WeeklyTask, String> {
+) -> Result<WeeklyTask, ApiError> {
     let pool = &state.0;
 
     let rec = sqlx::query_as::<_, WeeklyTask>(
@@ -169,7 +173,7 @@ pub async fn toggle_weekly_task(
     .await
     .map_err(|e| {
         log::error!("Failed to toggle weekly task {}: {}", id, e);
-        "Failed to toggle weekly task".to_string()
+        ApiError::from_sqlx(e, "Failed to toggle weekly task")
     })?;
 
     Ok(rec)
@@ -179,7 +183,7 @@ pub async fn toggle_weekly_task(
 pub async fn delete_weekly_task(
     state: State<'_, DbState>,
     id: i64,
-) -> Result<bool, String> {
+) -> Result<bool, ApiError> {
     let pool = &state.0;
 
     let result = sqlx::query("DELETE FROM weekly_tasks WHERE id = ?")
@@ -188,11 +192,11 @@ pub async fn delete_weekly_task(
         .await
         .map_err(|e| {
             log::error!("Failed to delete weekly task {}: {}", id, e);
-            "Failed to delete weekly task".to_string()
+            ApiError::from_sqlx(e, "Failed to delete weekly task")
         })?;
 
     if result.rows_affected() == 0 {
-        return Err("Weekly task not found".to_string());
+        return Err(ApiError::not_found("Weekly task not found"));
     }
 
     Ok(true)

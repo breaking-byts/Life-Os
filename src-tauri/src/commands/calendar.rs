@@ -1,5 +1,5 @@
 use tauri::State;
-use crate::DbState;
+use crate::{DbState, error::ApiError};
 use serde::Serialize;
 
 /// A unified calendar item for frontend rendering
@@ -35,15 +35,15 @@ pub struct CalendarQuery {
 pub async fn get_calendar_items(
     state: State<'_, DbState>,
     query: CalendarQuery,
-) -> Result<Vec<CalendarItem>, String> {
+) -> Result<Vec<CalendarItem>, ApiError> {
     let pool = &state.0;
     let mut items: Vec<CalendarItem> = Vec::new();
 
     // Parse dates for day-of-week calculations
     let start_date = chrono::NaiveDate::parse_from_str(&query.start_date, "%Y-%m-%d")
-        .map_err(|_| "Invalid start_date format")?;
+        .map_err(|_| ApiError::validation("Invalid start_date format"))?;
     let end_date = chrono::NaiveDate::parse_from_str(&query.end_date, "%Y-%m-%d")
-        .map_err(|_| "Invalid end_date format")?;
+        .map_err(|_| ApiError::validation("Invalid end_date format"))?;
 
     // 1. Course meetings (expand weekly recurrence)
     let meetings = sqlx::query_as::<_, (i64, i64, i64, String, String, Option<String>, Option<String>, Option<String>, Option<String>)>(
@@ -55,7 +55,7 @@ pub async fn get_calendar_items(
     )
     .fetch_all(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     for (id, course_id, day_of_week, start_time, end_time, location, meeting_type, course_name, color) in meetings {
         // Expand to each occurrence in the date range
@@ -99,7 +99,7 @@ pub async fn get_calendar_items(
     )
     .fetch_all(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     for (id, title, start_at, end_at, rrule, start_time, end_time, category, locked) in events {
         if let Some(ref rule) = rrule {
@@ -175,7 +175,7 @@ pub async fn get_calendar_items(
     .bind(&query.end_date)
     .fetch_all(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(ApiError::from)?;
 
     for (id, start_at, end_at, block_type, course_id, title, status, color) in blocks {
         let display_title = title.unwrap_or_else(|| block_type.clone());
@@ -212,7 +212,7 @@ pub async fn get_calendar_items(
         .bind(&query.end_date)
         .fetch_all(pool)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(ApiError::from)?;
 
         for (id, title, due_date, course_id, color) in assignments {
             items.push(CalendarItem {
@@ -246,7 +246,7 @@ pub async fn get_calendar_items(
         .bind(&query.end_date)
         .fetch_all(pool)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(ApiError::from)?;
 
         for (id, title, exam_date, duration, course_id, color) in exams {
             if let Some(ed) = exam_date {

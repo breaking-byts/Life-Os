@@ -6,7 +6,7 @@ const mockResponses: Map<string, MockResponse | MockResponse[]> = new Map()
 /**
  * Mock Tauri invoke function that returns predefined responses
  */
-export const mockInvoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+export const mockInvoke = vi.fn(async (command: string, _args?: Record<string, unknown>) => {
     const response = mockResponses.get(command)
     if (response === undefined) {
         throw new Error(`No mock response registered for command: ${command}`)
