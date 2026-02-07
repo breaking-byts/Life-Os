@@ -39,14 +39,35 @@ mod test_hooks {
         static IN_EMBEDDING_BLOCKING: Cell<bool> = Cell::new(false);
     }
 
-    pub(super) static TEST_GLOBAL_INIT_HOOK: once_cell::sync::OnceCell<
-        fn() -> Result<Arc<EmbeddingService>, String>,
-    > = once_cell::sync::OnceCell::new();
+    pub(super) static TEST_GLOBAL_INIT_HOOK: std::sync::Mutex<
+        Option<fn() -> Result<Arc<EmbeddingService>, String>>,
+    > = std::sync::Mutex::new(None);
 
     pub(super) fn set_test_global_init_hook(
         hook: fn() -> Result<Arc<EmbeddingService>, String>,
     ) {
-        let _ = TEST_GLOBAL_INIT_HOOK.set(hook);
+        if let Ok(mut hook_slot) = TEST_GLOBAL_INIT_HOOK.lock() {
+            *hook_slot = Some(hook);
+        }
+    }
+
+    pub(super) struct TestGlobalInitHookGuard;
+
+    impl Drop for TestGlobalInitHookGuard {
+        fn drop(&mut self) {
+            if let Ok(mut hook_slot) = TEST_GLOBAL_INIT_HOOK.lock() {
+                *hook_slot = None;
+            }
+        }
+    }
+
+    pub(super) fn scoped_test_global_init_hook(
+        hook: fn() -> Result<Arc<EmbeddingService>, String>,
+    ) -> TestGlobalInitHookGuard {
+        if let Ok(mut hook_slot) = TEST_GLOBAL_INIT_HOOK.lock() {
+            *hook_slot = Some(hook);
+        }
+        TestGlobalInitHookGuard
     }
 
     pub(super) fn is_in_embedding_blocking() -> bool {
@@ -102,8 +123,10 @@ impl EmbeddingService {
     /// Get or initialize the global embedding service
     pub fn global() -> Result<Arc<EmbeddingService>, String> {
         #[cfg(test)]
-        if let Some(hook) = test_hooks::TEST_GLOBAL_INIT_HOOK.get() {
-            return hook();
+        if let Ok(hook_slot) = test_hooks::TEST_GLOBAL_INIT_HOOK.lock() {
+            if let Some(hook) = *hook_slot {
+                return hook();
+            }
         }
         EMBEDDING_SERVICE
             .get_or_try_init(|| {
@@ -415,7 +438,7 @@ mod tests {
     async fn embedding_service_init_runs_in_blocking_task() {
         static CALLED_IN_BLOCKING: AtomicBool = AtomicBool::new(false);
 
-        test_hooks::set_test_global_init_hook(|| {
+        let _guard = test_hooks::scoped_test_global_init_hook(|| {
             let in_blocking = test_hooks::is_in_embedding_blocking();
             CALLED_IN_BLOCKING.store(in_blocking, Ordering::SeqCst);
             Err("test init".to_string())
