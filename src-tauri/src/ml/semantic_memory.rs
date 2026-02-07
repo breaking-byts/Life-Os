@@ -17,7 +17,7 @@ use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use super::embedding::{EmbeddingService, EMBEDDING_DIM};
+use super::embedding::{run_embedding_task, EmbeddingService, EMBEDDING_DIM};
 
 /// Cached semantic memory singleton
 static SEMANTIC_MEMORY: once_cell::sync::OnceCell<Arc<SemanticMemory>> =
@@ -142,15 +142,22 @@ impl SemanticMemory {
         metadata_json: Option<&str>,
         outcome_score: Option<f32>,
     ) -> Result<(), String> {
-        // Generate embedding
-        let embedding_service = EmbeddingService::global()?;
-        let embedding = embedding_service.embed(content)?;
+        // Generate embedding on blocking runtime
+        let content_owned = content.to_string();
+        let embedding = run_embedding_task({
+            let content = content_owned.clone();
+            move || {
+                let embedding_service = EmbeddingService::global()?;
+                embedding_service.embed(&content)
+            }
+        })
+        .await?;
 
         self.add_event_with_embedding(
             id,
             timestamp,
             event_type,
-            content,
+            &content_owned,
             metadata_json,
             outcome_score,
             &embedding,
@@ -249,9 +256,13 @@ impl SemanticMemory {
         };
         drop(table_guard);
 
-        // Generate query embedding
-        let embedding_service = EmbeddingService::global()?;
-        let query_embedding = embedding_service.embed(query_text)?;
+        // Generate query embedding on blocking runtime
+        let query_text = query_text.to_string();
+        let query_embedding = run_embedding_task(move || {
+            let embedding_service = EmbeddingService::global()?;
+            embedding_service.embed(&query_text)
+        })
+        .await?;
 
         // Build query - LanceDB expects owned Vec<f32>
         let mut query = table.vector_search(query_embedding)

@@ -11,6 +11,7 @@ use ort::value::Tensor;
 use parking_lot::RwLock;
 use std::path::Path;
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tokenizers::Tokenizer;
 
 /// Embedding dimension for Qwen3 model
@@ -19,9 +20,103 @@ pub const EMBEDDING_DIM: usize = 1024;
 /// Maximum sequence length for the model
 const MAX_SEQ_LENGTH: usize = 512;
 
+/// Maximum number of concurrent embedding tasks.
+pub const EMBEDDING_MAX_CONCURRENT_TASKS: usize = 2;
+
 /// Cached embedding service singleton
 static EMBEDDING_SERVICE: once_cell::sync::OnceCell<Arc<EmbeddingService>> =
     once_cell::sync::OnceCell::new();
+
+static EMBEDDING_TASK_SEMAPHORE: once_cell::sync::Lazy<Arc<Semaphore>> =
+    once_cell::sync::Lazy::new(|| Arc::new(Semaphore::new(EMBEDDING_MAX_CONCURRENT_TASKS)));
+
+#[cfg(test)]
+mod test_hooks {
+    use super::*;
+    use std::cell::Cell;
+
+    thread_local! {
+        static IN_EMBEDDING_BLOCKING: Cell<bool> = Cell::new(false);
+    }
+
+    pub(super) static TEST_GLOBAL_INIT_HOOK: std::sync::Mutex<
+        Option<fn() -> Result<Arc<EmbeddingService>, String>>,
+    > = std::sync::Mutex::new(None);
+
+    pub(super) fn set_test_global_init_hook(
+        hook: fn() -> Result<Arc<EmbeddingService>, String>,
+    ) {
+        let mut hook_slot = TEST_GLOBAL_INIT_HOOK
+            .lock()
+            .expect("TEST_GLOBAL_INIT_HOOK mutex poisoned");
+        *hook_slot = Some(hook);
+    }
+
+    pub(super) struct TestGlobalInitHookGuard;
+
+    impl Drop for TestGlobalInitHookGuard {
+        fn drop(&mut self) {
+            let mut hook_slot = TEST_GLOBAL_INIT_HOOK
+                .lock()
+                .expect("TEST_GLOBAL_INIT_HOOK mutex poisoned");
+            *hook_slot = None;
+        }
+    }
+
+    pub(super) fn scoped_test_global_init_hook(
+        hook: fn() -> Result<Arc<EmbeddingService>, String>,
+    ) -> TestGlobalInitHookGuard {
+        let mut hook_slot = TEST_GLOBAL_INIT_HOOK
+            .lock()
+            .expect("TEST_GLOBAL_INIT_HOOK mutex poisoned");
+        *hook_slot = Some(hook);
+        TestGlobalInitHookGuard
+    }
+
+    pub(super) fn is_in_embedding_blocking() -> bool {
+        IN_EMBEDDING_BLOCKING.with(|flag| flag.get())
+    }
+
+    pub(super) fn with_embedding_blocking_flag<T>(f: impl FnOnce() -> T) -> T {
+        IN_EMBEDDING_BLOCKING.with(|flag| {
+            let previous = flag.replace(true);
+            let result = f();
+            flag.set(previous);
+            result
+        })
+    }
+}
+
+pub(crate) async fn run_embedding_task<F, T>(task: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    let permit = EMBEDDING_TASK_SEMAPHORE
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|_| "Embedding task queue closed".to_string())?;
+    let handle = tauri::async_runtime::spawn_blocking(move || {
+        // Keep the permit alive for the entire blocking task.
+        let permit = permit;
+        let result = {
+            #[cfg(test)]
+            {
+                test_hooks::with_embedding_blocking_flag(task)
+            }
+            #[cfg(not(test))]
+            {
+                task()
+            }
+        };
+        drop(permit);
+        result
+    });
+    handle
+        .await
+        .map_err(|e| format!("Embedding task failed: {}", e))?
+}
 
 /// ONNX-based embedding service
 pub struct EmbeddingService {
@@ -32,6 +127,15 @@ pub struct EmbeddingService {
 impl EmbeddingService {
     /// Get or initialize the global embedding service
     pub fn global() -> Result<Arc<EmbeddingService>, String> {
+        #[cfg(test)]
+        {
+            let hook_slot = test_hooks::TEST_GLOBAL_INIT_HOOK
+                .lock()
+                .expect("TEST_GLOBAL_INIT_HOOK mutex poisoned");
+            if let Some(hook) = *hook_slot {
+                return hook();
+            }
+        }
         EMBEDDING_SERVICE
             .get_or_try_init(|| {
                 let model_dir = std::env::var("EMBEDDING_MODEL_PATH").unwrap_or_else(|_| {
@@ -241,13 +345,11 @@ impl EmbeddingService {
 }
 
 /// Generate a context-aware embedding for a user event
-pub fn embed_user_event(
+pub async fn embed_user_event(
     event_type: &str,
     content: &str,
     context: Option<&str>,
 ) -> Result<Vec<f32>, String> {
-    let service = EmbeddingService::global()?;
-
     // Create a rich text representation for embedding
     let text = if let Some(ctx) = context {
         format!("[{}] {} | Context: {}", event_type, content, ctx)
@@ -255,12 +357,19 @@ pub fn embed_user_event(
         format!("[{}] {}", event_type, content)
     };
 
-    service.embed(&text)
+    run_embedding_task(move || {
+        let service = EmbeddingService::global()?;
+        service.embed(&text)
+    })
+    .await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, atomic::{AtomicBool, AtomicUsize, Ordering}};
+    use std::time::Duration;
+    use tokio::time::timeout;
 
     #[test]
     fn test_embedding_bytes_roundtrip() {
@@ -278,5 +387,95 @@ mod tests {
 
         let c = vec![0.0, 1.0, 0.0];
         assert!(EmbeddingService::cosine_similarity(&a, &c).abs() < 1e-6);
+    }
+
+    #[tokio::test]
+    async fn embedding_tasks_are_bounded() {
+        let max = EMBEDDING_MAX_CONCURRENT_TASKS;
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let mut handles = Vec::new();
+
+        for _ in 0..(max + 2) {
+            let active = Arc::clone(&active);
+            let peak = Arc::clone(&peak);
+            handles.push(tokio::spawn(async move {
+                run_embedding_task(move || {
+                    let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(current, Ordering::SeqCst);
+                    std::thread::sleep(Duration::from_millis(50));
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    Ok::<_, String>(())
+                })
+                .await
+            }));
+        }
+
+        for handle in handles {
+            handle.await.unwrap().unwrap();
+        }
+
+        assert!(
+            peak.load(Ordering::SeqCst) <= max,
+            "concurrency exceeded: {} > {}",
+            peak.load(Ordering::SeqCst),
+            max
+        );
+    }
+
+    #[tokio::test]
+    async fn async_runtime_stays_responsive_during_embedding() {
+        let embedding = tokio::spawn(async {
+            run_embedding_task(|| {
+                std::thread::sleep(Duration::from_millis(150));
+                Ok::<_, String>(())
+            })
+            .await
+        });
+
+        let fast_task = timeout(Duration::from_millis(50), async {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        })
+        .await;
+
+        embedding.await.unwrap().unwrap();
+        assert!(fast_task.is_ok(), "async task timed out while embedding ran");
+    }
+
+    #[tokio::test]
+    async fn embedding_service_init_runs_in_blocking_task() {
+        static CALLED_IN_BLOCKING: AtomicBool = AtomicBool::new(false);
+
+        let _guard = test_hooks::scoped_test_global_init_hook(|| {
+            let in_blocking = test_hooks::is_in_embedding_blocking();
+            CALLED_IN_BLOCKING.store(in_blocking, Ordering::SeqCst);
+            Err("test init".to_string())
+        });
+
+        let result = embed_user_event("note", "payload", None).await;
+
+        assert!(result.is_err(), "expected test init error");
+        assert!(
+            CALLED_IN_BLOCKING.load(Ordering::SeqCst),
+            "expected EmbeddingService::global to run inside spawn_blocking"
+        );
+    }
+
+    #[test]
+    fn embedding_hook_poison_panics() {
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = test_hooks::TEST_GLOBAL_INIT_HOOK
+                .lock()
+                .expect("TEST_GLOBAL_INIT_HOOK mutex poisoned");
+            panic!("poison hook mutex");
+        });
+
+        let result = std::panic::catch_unwind(|| {
+            let _guard = test_hooks::scoped_test_global_init_hook(|| {
+                Err("should not reach hook".to_string())
+            });
+        });
+
+        assert!(result.is_err(), "expected poisoned mutex to panic");
     }
 }
