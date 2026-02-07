@@ -30,6 +30,39 @@ static EMBEDDING_SERVICE: once_cell::sync::OnceCell<Arc<EmbeddingService>> =
 static EMBEDDING_TASK_SEMAPHORE: once_cell::sync::Lazy<Arc<Semaphore>> =
     once_cell::sync::Lazy::new(|| Arc::new(Semaphore::new(EMBEDDING_MAX_CONCURRENT_TASKS)));
 
+#[cfg(test)]
+mod test_hooks {
+    use super::*;
+    use std::cell::Cell;
+
+    thread_local! {
+        static IN_EMBEDDING_BLOCKING: Cell<bool> = Cell::new(false);
+    }
+
+    pub(super) static TEST_GLOBAL_INIT_HOOK: once_cell::sync::OnceCell<
+        fn() -> Result<Arc<EmbeddingService>, String>,
+    > = once_cell::sync::OnceCell::new();
+
+    pub(super) fn set_test_global_init_hook(
+        hook: fn() -> Result<Arc<EmbeddingService>, String>,
+    ) {
+        let _ = TEST_GLOBAL_INIT_HOOK.set(hook);
+    }
+
+    pub(super) fn is_in_embedding_blocking() -> bool {
+        IN_EMBEDDING_BLOCKING.with(|flag| flag.get())
+    }
+
+    pub(super) fn with_embedding_blocking_flag<T>(f: impl FnOnce() -> T) -> T {
+        IN_EMBEDDING_BLOCKING.with(|flag| {
+            let previous = flag.replace(true);
+            let result = f();
+            flag.set(previous);
+            result
+        })
+    }
+}
+
 pub(crate) async fn run_embedding_task<F, T>(task: F) -> Result<T, String>
 where
     F: FnOnce() -> Result<T, String> + Send + 'static,
@@ -42,7 +75,17 @@ where
         .map_err(|_| "Embedding task queue closed".to_string())?;
     let handle = tauri::async_runtime::spawn_blocking(move || {
         let _permit = permit;
-        task()
+        let result = {
+            #[cfg(test)]
+            {
+                test_hooks::with_embedding_blocking_flag(task)
+            }
+            #[cfg(not(test))]
+            {
+                task()
+            }
+        };
+        result
     });
     handle
         .await
@@ -58,6 +101,10 @@ pub struct EmbeddingService {
 impl EmbeddingService {
     /// Get or initialize the global embedding service
     pub fn global() -> Result<Arc<EmbeddingService>, String> {
+        #[cfg(test)]
+        if let Some(hook) = test_hooks::TEST_GLOBAL_INIT_HOOK.get() {
+            return hook();
+        }
         EMBEDDING_SERVICE
             .get_or_try_init(|| {
                 let model_dir = std::env::var("EMBEDDING_MODEL_PATH").unwrap_or_else(|_| {
@@ -272,8 +319,6 @@ pub async fn embed_user_event(
     content: &str,
     context: Option<&str>,
 ) -> Result<Vec<f32>, String> {
-    let service = EmbeddingService::global()?;
-
     // Create a rich text representation for embedding
     let text = if let Some(ctx) = context {
         format!("[{}] {} | Context: {}", event_type, content, ctx)
@@ -281,13 +326,17 @@ pub async fn embed_user_event(
         format!("[{}] {}", event_type, content)
     };
 
-    run_embedding_task(move || service.embed(&text)).await
+    run_embedding_task(move || {
+        let service = EmbeddingService::global()?;
+        service.embed(&text)
+    })
+    .await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    use std::sync::{Arc, atomic::{AtomicBool, AtomicUsize, Ordering}};
     use std::time::Duration;
     use tokio::time::timeout;
 
@@ -360,5 +409,24 @@ mod tests {
 
         embedding.await.unwrap().unwrap();
         assert!(fast_task.is_ok(), "async task timed out while embedding ran");
+    }
+
+    #[tokio::test]
+    async fn embedding_service_init_runs_in_blocking_task() {
+        static CALLED_IN_BLOCKING: AtomicBool = AtomicBool::new(false);
+
+        test_hooks::set_test_global_init_hook(|| {
+            let in_blocking = test_hooks::is_in_embedding_blocking();
+            CALLED_IN_BLOCKING.store(in_blocking, Ordering::SeqCst);
+            Err("test init".to_string())
+        });
+
+        let result = embed_user_event("note", "payload", None).await;
+
+        assert!(result.is_err(), "expected test init error");
+        assert!(
+            CALLED_IN_BLOCKING.load(Ordering::SeqCst),
+            "expected EmbeddingService::global to run inside spawn_blocking"
+        );
     }
 }
