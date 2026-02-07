@@ -1,6 +1,7 @@
 use tauri::State;
 use crate::{DbState, error::ApiError};
 use serde::Serialize;
+use crate::utils::parse_datetime_to_rfc3339;
 
 /// A unified calendar item for frontend rendering
 #[derive(Debug, Serialize, Clone)]
@@ -36,7 +37,13 @@ pub async fn get_calendar_items(
     state: State<'_, DbState>,
     query: CalendarQuery,
 ) -> Result<Vec<CalendarItem>, ApiError> {
-    let pool = &state.0;
+    get_calendar_items_for_test(&state.0, query).await
+}
+
+async fn get_calendar_items_for_test(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    query: CalendarQuery,
+) -> Result<Vec<CalendarItem>, ApiError> {
     let mut items: Vec<CalendarItem> = Vec::new();
 
     // Parse dates for day-of-week calculations
@@ -71,12 +78,15 @@ pub async fn get_calendar_items(
                     meeting_type.as_deref().unwrap_or("Class")
                 );
 
+                let normalized_start = parse_datetime_to_rfc3339(&start_at).unwrap_or(start_at);
+                let normalized_end = parse_datetime_to_rfc3339(&end_at).unwrap_or(end_at);
+
                 items.push(CalendarItem {
                     id: format!("cm_{}_{}", id, current),
                     source: "course_meeting".to_string(),
                     title,
-                    start_at,
-                    end_at,
+                    start_at: normalized_start,
+                    end_at: normalized_end,
                     all_day: false,
                     color: color.clone(),
                     course_id: Some(course_id),
@@ -118,12 +128,17 @@ pub async fn get_calendar_items(
                     use chrono::Datelike;
                     let dow = current.weekday().num_days_from_sunday() as i64;
                     if days.contains(&dow) {
+                        let start_at = format!("{}T{}:00", current, st);
+                        let end_at = format!("{}T{}:00", current, et);
+                        let normalized_start = parse_datetime_to_rfc3339(&start_at).unwrap_or(start_at);
+                        let normalized_end = parse_datetime_to_rfc3339(&end_at).unwrap_or(end_at);
+
                         items.push(CalendarItem {
                             id: format!("ce_{}_{}", id, current),
                             source: "calendar_event".to_string(),
                             title: title.clone(),
-                            start_at: format!("{}T{}:00", current, st),
-                            end_at: format!("{}T{}:00", current, et),
+                            start_at: normalized_start,
+                            end_at: normalized_end,
                             all_day: false,
                             color: None,
                             course_id: None,
@@ -143,12 +158,15 @@ pub async fn get_calendar_items(
             let event_date = sa.split('T').next().unwrap_or("");
             if event_date >= query.start_date.as_str() && event_date <= query.end_date.as_str() {
                 let is_all_day = !sa.contains('T') || !ea.contains('T');
+                let normalized_start = parse_datetime_to_rfc3339(&sa).unwrap_or(sa);
+                let normalized_end = parse_datetime_to_rfc3339(&ea).unwrap_or(ea);
+
                 items.push(CalendarItem {
                     id: format!("ce_{}", id),
                     source: "calendar_event".to_string(),
                     title: title.clone(),
-                    start_at: sa,
-                    end_at: ea,
+                    start_at: normalized_start,
+                    end_at: normalized_end,
                     all_day: is_all_day,
                     color: None,
                     course_id: None,
@@ -181,12 +199,15 @@ pub async fn get_calendar_items(
         let display_title = title.unwrap_or_else(|| block_type.clone());
         let is_locked = status.as_deref() == Some("locked");
 
+        let normalized_start = parse_datetime_to_rfc3339(&start_at).unwrap_or(start_at);
+        let normalized_end = parse_datetime_to_rfc3339(&end_at).unwrap_or(end_at);
+
         items.push(CalendarItem {
             id: format!("wpb_{}", id),
             source: "plan_block".to_string(),
             title: display_title,
-            start_at,
-            end_at,
+            start_at: normalized_start,
+            end_at: normalized_end,
             all_day: false,
             color,
             course_id,
@@ -215,12 +236,15 @@ pub async fn get_calendar_items(
         .map_err(ApiError::from)?;
 
         for (id, title, due_date, course_id, color) in assignments {
+            let normalized_start = parse_datetime_to_rfc3339(&due_date).unwrap_or(due_date.clone());
+            let normalized_end = parse_datetime_to_rfc3339(&due_date).unwrap_or(due_date);
+
             items.push(CalendarItem {
                 id: format!("asgn_{}", id),
                 source: "assignment".to_string(),
                 title: format!("Due: {}", title),
-                start_at: due_date.clone(),
-                end_at: due_date,
+                start_at: normalized_start,
+                end_at: normalized_end,
                 all_day: true,
                 color,
                 course_id: Some(course_id),
@@ -270,12 +294,15 @@ pub async fn get_calendar_items(
                     ed.clone()
                 };
 
+                let normalized_start = parse_datetime_to_rfc3339(&ed).unwrap_or(ed);
+                let normalized_end = parse_datetime_to_rfc3339(&end_at).unwrap_or(end_at);
+
                 items.push(CalendarItem {
                     id: format!("exam_{}", id),
                     source: "exam".to_string(),
                     title: format!("Exam: {}", title),
-                    start_at: ed,
-                    end_at,
+                    start_at: normalized_start,
+                    end_at: normalized_end,
                     all_day,
                     color,
                     course_id: Some(course_id),
@@ -294,4 +321,68 @@ pub async fn get_calendar_items(
     items.sort_by(|a, b| a.start_at.cmp(&b.start_at));
 
     Ok(items)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn setup_db() -> sqlx::Pool<sqlx::Sqlite> {
+        use sqlx::sqlite::SqliteConnectOptions;
+        use std::str::FromStr;
+
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .foreign_keys(false);
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("Failed to connect to in-memory DB");
+
+        crate::db::migrations::run_migrations(&pool)
+            .await
+            .expect("Failed to run migrations");
+
+        pool
+    }
+
+    fn is_rfc3339(value: &str) -> bool {
+        value.contains('Z') || value.contains('+')
+    }
+
+    #[tokio::test]
+    async fn calendar_items_emit_rfc3339_times() {
+        let pool = setup_db().await;
+
+        sqlx::query(
+            r#"INSERT INTO calendar_events (user_id, title, start_at, end_at, category)
+               VALUES (1, 'Test Event', '2026-02-07T09:30:00', '2026-02-07T10:30:00', 'busy')"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let items = get_calendar_items_for_test(
+            &pool,
+            CalendarQuery {
+                start_date: "2026-02-07".to_string(),
+                end_date: "2026-02-07".to_string(),
+                include_assignments: Some(false),
+                include_exams: Some(false),
+            },
+        )
+        .await
+        .unwrap();
+
+        let event = items
+            .into_iter()
+            .find(|item| item.source == "calendar_event")
+            .expect("calendar event not found");
+
+        assert!(is_rfc3339(&event.start_at));
+        assert!(is_rfc3339(&event.end_at));
+    }
 }
