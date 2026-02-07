@@ -11,6 +11,7 @@ use ort::value::Tensor;
 use parking_lot::RwLock;
 use std::path::Path;
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tokenizers::Tokenizer;
 
 /// Embedding dimension for Qwen3 model
@@ -19,9 +20,34 @@ pub const EMBEDDING_DIM: usize = 1024;
 /// Maximum sequence length for the model
 const MAX_SEQ_LENGTH: usize = 512;
 
+/// Maximum number of concurrent embedding tasks.
+pub const EMBEDDING_MAX_CONCURRENT_TASKS: usize = 2;
+
 /// Cached embedding service singleton
 static EMBEDDING_SERVICE: once_cell::sync::OnceCell<Arc<EmbeddingService>> =
     once_cell::sync::OnceCell::new();
+
+static EMBEDDING_TASK_SEMAPHORE: once_cell::sync::Lazy<Arc<Semaphore>> =
+    once_cell::sync::Lazy::new(|| Arc::new(Semaphore::new(EMBEDDING_MAX_CONCURRENT_TASKS)));
+
+pub(crate) async fn run_embedding_task<F, T>(task: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    let permit = EMBEDDING_TASK_SEMAPHORE
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|_| "Embedding task queue closed".to_string())?;
+    let handle = tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        task()
+    });
+    handle
+        .await
+        .map_err(|e| format!("Embedding task failed: {}", e))?
+}
 
 /// ONNX-based embedding service
 pub struct EmbeddingService {
@@ -241,7 +267,7 @@ impl EmbeddingService {
 }
 
 /// Generate a context-aware embedding for a user event
-pub fn embed_user_event(
+pub async fn embed_user_event(
     event_type: &str,
     content: &str,
     context: Option<&str>,
@@ -255,12 +281,15 @@ pub fn embed_user_event(
         format!("[{}] {}", event_type, content)
     };
 
-    service.embed(&text)
+    run_embedding_task(move || service.embed(&text)).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    use std::time::Duration;
+    use tokio::time::timeout;
 
     #[test]
     fn test_embedding_bytes_roundtrip() {
@@ -278,5 +307,58 @@ mod tests {
 
         let c = vec![0.0, 1.0, 0.0];
         assert!(EmbeddingService::cosine_similarity(&a, &c).abs() < 1e-6);
+    }
+
+    #[tokio::test]
+    async fn embedding_tasks_are_bounded() {
+        let max = EMBEDDING_MAX_CONCURRENT_TASKS;
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let mut handles = Vec::new();
+
+        for _ in 0..(max + 2) {
+            let active = Arc::clone(&active);
+            let peak = Arc::clone(&peak);
+            handles.push(tokio::spawn(async move {
+                run_embedding_task(move || {
+                    let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(current, Ordering::SeqCst);
+                    std::thread::sleep(Duration::from_millis(50));
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    Ok::<_, String>(())
+                })
+                .await
+            }));
+        }
+
+        for handle in handles {
+            handle.await.unwrap().unwrap();
+        }
+
+        assert!(
+            peak.load(Ordering::SeqCst) <= max,
+            "concurrency exceeded: {} > {}",
+            peak.load(Ordering::SeqCst),
+            max
+        );
+    }
+
+    #[tokio::test]
+    async fn async_runtime_stays_responsive_during_embedding() {
+        let embedding = tokio::spawn(async {
+            run_embedding_task(|| {
+                std::thread::sleep(Duration::from_millis(150));
+                Ok::<_, String>(())
+            })
+            .await
+        });
+
+        let fast_task = timeout(Duration::from_millis(50), async {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        })
+        .await;
+
+        embedding.await.unwrap().unwrap();
+        assert!(fast_task.is_ok(), "async task timed out while embedding ran");
     }
 }
