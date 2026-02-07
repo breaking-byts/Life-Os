@@ -742,8 +742,7 @@ mod benchmarks {
         pool
     }
 
-    #[tokio::test]
-    async fn benchmark_get_courses_with_progress() {
+    async fn run_get_courses_with_progress_benchmark() -> std::time::Duration {
         let pool = setup_db().await;
 
         // Seed Data
@@ -783,8 +782,17 @@ mod benchmarks {
 
         let start = Instant::now();
         let _result = get_courses_with_progress_inner(&pool).await.unwrap();
-        let duration = start.elapsed();
+        start.elapsed()
+    }
 
+    #[tokio::test]
+    async fn benchmark_get_courses_with_progress() {
+        let duration = run_get_courses_with_progress_benchmark().await;
         println!("Benchmark get_courses_with_progress: {:?}", duration);
+    }
+
+    #[tokio::test]
+    async fn benchmark_get_courses_with_progress_reports_duration() {
+        let _duration = run_get_courses_with_progress_benchmark().await;
     }
 }

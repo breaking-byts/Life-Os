@@ -328,7 +328,7 @@ pub async fn google_oauth_complete(
     let account = upsert_google_account(&state.0, &user_info).await?;
 
     // Persist the client id used for this session
-    let _ = set_google_client_id(state, session.client_id.clone()).await;
+    let _ = set_google_client_id(state.clone(), session.client_id.clone()).await;
 
     // Initialize calendar prefs row if missing
     sqlx::query(

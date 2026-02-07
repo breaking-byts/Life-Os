@@ -493,6 +493,249 @@ pub async fn get_detailed_stats(state: State<'_, DbState>) -> Result<DetailedSta
     })
 }
 
+#[cfg(test)]
+async fn get_detailed_stats_inner(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<DetailedStats, String> {
+    let settings = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT COALESCE(weekly_workout_target, 3), COALESCE(weekly_active_skills_target, 5) FROM user_settings WHERE user_id = 1",
+    )
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| e.to_string())?
+    .unwrap_or((3, 5));
+
+    let course_rows = sqlx::query_as::<_, (i64, String, Option<String>, String, f64, Option<f64>, Option<f64>, f64)>(
+        r#"
+        SELECT
+            c.id,
+            c.name,
+            c.code,
+            c.color,
+            c.target_weekly_hours,
+            c.current_grade,
+            c.target_grade,
+            (
+                SELECT COALESCE(SUM(s.duration_minutes), 0) / 60.0
+                FROM sessions s
+                WHERE s.session_type = 'study'
+                  AND s.reference_type = 'course'
+                  AND s.reference_id = c.id
+                  AND s.started_at >= date('now', 'weekday 0', '-7 days')
+            ) as hours_this_week
+        FROM courses c
+        WHERE c.is_active = 1
+        ORDER BY c.name
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut study_breakdown: Vec<CourseProgress> = Vec::new();
+    let mut study_hours_week = 0.0;
+    let mut study_target_week = 0.0;
+
+    for (course_id, name, code, color, target_hours, current_grade, target_grade, hours_this_week) in course_rows {
+        study_hours_week += hours_this_week;
+        study_target_week += target_hours;
+
+        let percent = if target_hours > 0.0 {
+            (hours_this_week / target_hours * 100.0).min(100.0)
+        } else {
+            0.0
+        };
+
+        study_breakdown.push(CourseProgress {
+            course_id,
+            course_name: name,
+            code,
+            color,
+            hours_this_week,
+            target_hours,
+            percent,
+            current_grade,
+            target_grade,
+        });
+    }
+
+    let study_percent = if study_target_week > 0.0 {
+        (study_hours_week / study_target_week * 100.0).min(100.0)
+    } else {
+        0.0
+    };
+
+    let skill_rows = sqlx::query_as::<_, (i64, String, Option<String>, f64, f64, i64, f64, f64)>(
+        r#"
+        SELECT
+            s.id,
+            s.name,
+            s.category,
+            s.target_weekly_hours,
+            s.total_hours,
+            s.current_level,
+            (
+                SELECT COALESCE(SUM(p.duration_minutes), 0) / 60.0
+                FROM practice_logs p
+                WHERE p.skill_id = s.id
+                  AND p.logged_at >= date('now', 'weekday 0', '-7 days')
+            ) as hours_this_week,
+            COALESCE(s.target_hours, 100.0) as target_hours
+        FROM skills s
+        ORDER BY s.name
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut practice_breakdown: Vec<SkillProgress> = Vec::new();
+    let mut practice_hours_week = 0.0;
+    let mut practice_target_week = 0.0;
+    let mut active_skills_count = 0;
+
+    for (skill_id, name, category, target_weekly_hours, total_hours, current_level, hours_this_week, target_hours) in skill_rows {
+        practice_hours_week += hours_this_week;
+        practice_target_week += target_weekly_hours;
+
+        if hours_this_week > 0.0 {
+            active_skills_count += 1;
+        }
+
+        let weekly_percent = if target_weekly_hours > 0.0 {
+            (hours_this_week / target_weekly_hours * 100.0).min(100.0)
+        } else {
+            0.0
+        };
+
+        let mastery_percent = if target_hours > 0.0 {
+            (total_hours / target_hours * 100.0).min(100.0)
+        } else {
+            0.0
+        };
+
+        practice_breakdown.push(SkillProgress {
+            skill_id,
+            skill_name: name,
+            category,
+            hours_this_week,
+            target_weekly_hours,
+            weekly_percent,
+            total_hours,
+            target_hours,
+            mastery_percent,
+            current_level,
+        });
+    }
+
+    let practice_percent = if practice_target_week > 0.0 {
+        (practice_hours_week / practice_target_week * 100.0).min(100.0)
+    } else {
+        0.0
+    };
+
+    let workouts_week: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM workouts WHERE logged_at >= date('now', 'weekday 0', '-7 days')",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    let workout_percent = if settings.0 > 0 {
+        (workouts_week as f64 / settings.0 as f64 * 100.0).min(100.0)
+    } else {
+        0.0
+    };
+
+    Ok(DetailedStats {
+        study_hours_week,
+        study_target_week,
+        study_percent,
+        study_breakdown,
+        practice_hours_week,
+        practice_target_week,
+        practice_percent,
+        practice_breakdown,
+        workouts_week,
+        workout_target_week: settings.0,
+        workout_percent,
+        active_skills_count,
+        skills_target: settings.1,
+    })
+}
+
+#[cfg(test)]
+async fn run_get_detailed_stats_benchmark() -> std::time::Duration {
+    use sqlx::Row;
+    use sqlx::sqlite::SqliteConnectOptions;
+    use std::str::FromStr;
+
+    let options = SqliteConnectOptions::from_str("sqlite::memory:")
+        .unwrap()
+        .foreign_keys(false);
+
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .unwrap();
+
+    crate::db::migrations::run_migrations(&pool)
+        .await
+        .expect("failed to run migrations");
+
+    sqlx::query("UPDATE user_settings SET weekly_workout_target = 3, weekly_active_skills_target = 5 WHERE id = 1")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    for i in 0..10 {
+        let course_row = sqlx::query("INSERT INTO courses (name, target_weekly_hours, is_active) VALUES (?, ?, 1) RETURNING id")
+            .bind(format!("Course {}", i))
+            .bind(6.0)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let course_id: i64 = course_row.get(0);
+
+        sqlx::query("INSERT INTO sessions (session_type, reference_type, reference_id, duration_minutes, started_at) VALUES ('study', 'course', ?, ?, date('now'))")
+            .bind(course_id)
+            .bind(60)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    for i in 0..10 {
+        let skill_row = sqlx::query("INSERT INTO skills (name, target_weekly_hours, total_hours, current_level) VALUES (?, ?, ?, ?) RETURNING id")
+            .bind(format!("Skill {}", i))
+            .bind(4.0)
+            .bind(20.0)
+            .bind(2)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let skill_id: i64 = skill_row.get(0);
+
+        sqlx::query("INSERT INTO practice_logs (skill_id, duration_minutes, logged_at) VALUES (?, ?, date('now'))")
+            .bind(skill_id)
+            .bind(45)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    for _ in 0..3 {
+        sqlx::query("INSERT INTO workouts (duration_minutes, logged_at) VALUES (?, date('now'))")
+            .bind(30)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    let start = std::time::Instant::now();
+    let _result = get_detailed_stats_inner(&pool).await.unwrap();
+    start.elapsed()
+}
+
 // ============================================================================
 // WORKOUT HEATMAP
 // ============================================================================
@@ -1333,5 +1576,15 @@ mod tests {
         assert!(json.contains("\"study_hours_week\":8.5"));
         assert!(json.contains("\"workout_percent\":66.67"));
         assert!(json.contains("\"active_skills_count\":3"));
+    }
+}
+
+#[cfg(test)]
+mod benchmarks {
+    use super::*;
+
+    #[tokio::test]
+    async fn benchmark_get_detailed_stats_reports_duration() {
+        let _duration = run_get_detailed_stats_benchmark().await;
     }
 }
