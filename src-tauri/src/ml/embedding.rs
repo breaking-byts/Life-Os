@@ -43,12 +43,18 @@ mod test_hooks {
         Option<fn() -> Result<Arc<EmbeddingService>, String>>,
     > = std::sync::Mutex::new(None);
 
+    pub(super) fn lock_test_global_init_hook(
+    ) -> std::sync::MutexGuard<'static, Option<fn() -> Result<Arc<EmbeddingService>, String>>> {
+        match TEST_GLOBAL_INIT_HOOK.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
     pub(super) fn set_test_global_init_hook(
         hook: fn() -> Result<Arc<EmbeddingService>, String>,
     ) {
-        let mut hook_slot = TEST_GLOBAL_INIT_HOOK
-            .lock()
-            .expect("TEST_GLOBAL_INIT_HOOK mutex poisoned");
+        let mut hook_slot = lock_test_global_init_hook();
         *hook_slot = Some(hook);
     }
 
@@ -56,9 +62,7 @@ mod test_hooks {
 
     impl Drop for TestGlobalInitHookGuard {
         fn drop(&mut self) {
-            let mut hook_slot = TEST_GLOBAL_INIT_HOOK
-                .lock()
-                .expect("TEST_GLOBAL_INIT_HOOK mutex poisoned");
+            let mut hook_slot = lock_test_global_init_hook();
             *hook_slot = None;
         }
     }
@@ -66,9 +70,7 @@ mod test_hooks {
     pub(super) fn scoped_test_global_init_hook(
         hook: fn() -> Result<Arc<EmbeddingService>, String>,
     ) -> TestGlobalInitHookGuard {
-        let mut hook_slot = TEST_GLOBAL_INIT_HOOK
-            .lock()
-            .expect("TEST_GLOBAL_INIT_HOOK mutex poisoned");
+        let mut hook_slot = lock_test_global_init_hook();
         *hook_slot = Some(hook);
         TestGlobalInitHookGuard
     }
@@ -129,9 +131,7 @@ impl EmbeddingService {
     pub fn global() -> Result<Arc<EmbeddingService>, String> {
         #[cfg(test)]
         {
-            let hook_slot = test_hooks::TEST_GLOBAL_INIT_HOOK
-                .lock()
-                .expect("TEST_GLOBAL_INIT_HOOK mutex poisoned");
+            let hook_slot = test_hooks::lock_test_global_init_hook();
             if let Some(hook) = *hook_slot {
                 return hook();
             }
@@ -462,11 +462,9 @@ mod tests {
     }
 
     #[test]
-    fn embedding_hook_poison_panics() {
+    fn embedding_hook_poison_recovers() {
         let _ = std::panic::catch_unwind(|| {
-            let _guard = test_hooks::TEST_GLOBAL_INIT_HOOK
-                .lock()
-                .expect("TEST_GLOBAL_INIT_HOOK mutex poisoned");
+            let _guard = test_hooks::lock_test_global_init_hook();
             panic!("poison hook mutex");
         });
 
@@ -476,6 +474,6 @@ mod tests {
             });
         });
 
-        assert!(result.is_err(), "expected poisoned mutex to panic");
+        assert!(result.is_ok(), "expected poisoned mutex to recover");
     }
 }
